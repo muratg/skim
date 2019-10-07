@@ -1,0 +1,83 @@
+(define-library
+  (skim example showcases)
+  (export)
+  ;; --------------------------------
+
+
+  (define (print x)
+    (display x)
+    (newline))
+
+  ;; (lambda (x y) (+ x y))
+  (lambda (x y) (+ x y))
+
+  ;; (define ret "")
+  (define ret "")
+
+  ;; case with multiple cases, and multiple exprs..
+  (define (CASE-EXAMPLE)
+    (case "X"
+      (("t" "y") (set! ret "multi-values") (set! ret #t) "YES")
+      (("f") (set! ret #f))
+      (("!" "x") (set! ret "A"))
+      (("n") (set! ret nil))
+      (else (raise (string-append  "unknown hashval: " "1")) nil)))
+
+  ;; cond
+  (define (COND-EXAMPLE)
+    (cond
+      ((= 1 (- 2 1)) "yes" "YEA")
+      ((> 100 (* 33 2)) "lol" #t "hehe")
+      (else (raise (string-append "test" "lol")) nil)))
+
+  ;; a few funcs in lambda form. first two don't return values.
+  (define prim1 (lambda (name emitter) (hash-table-set! primitives name emitter)))
+  (define get-emitter1 (lambda (name) (hash-table-ref primitives name)))
+  (define is-prim1 (lambda (name) ""  (hash-table-exists? primitives name)))
+
+  ;; a few funcs. first two don't return values.
+  (define (prim2 name emitter) (hash-table-set! primitives name emitter))
+  (define (get-emitter2 name) (hash-table-ref primitives name))
+  (define (is-prim2 name) ""  (hash-table-exists? primitives name))
+
+  ;; some call patterns (problematic)
+  (+ 1 2)
+
+  ;; when
+  (when #t
+    (print "a")
+    (print "b")
+    )
+
+  ;; unles
+  (unless #t
+    (print "a")
+    (print "b")
+    )
+
+  (print "-----------")
+  ;; let
+
+  (let
+    ((a 10)
+     (b 20)
+     (d (lambda (x y) (* x y))))
+    (* 1 1)
+    (define x 100)
+    (define y (+ 40 2))
+    (d a b)
+    (* 1 1)
+    (d a b))
+
+
+  ;; letstar
+
+  (let* ((a 10)
+         (b 20))
+    (+ a b)
+    (* b a))
+
+  ;; command-line
+  (print (command-line))
+  (print "-----------")
+  )

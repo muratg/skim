@@ -1,0 +1,178 @@
+(define-library
+  (skim compiler parser)
+  (export parse)
+  (define (parse str)
+
+    (define _stream "")
+    (define _pos 0)
+
+    (define _need-input #f)
+
+    (define (peek)
+      (if (= (string-length _stream) _pos)
+          ""
+          (string-ref _stream _pos)))
+
+    (define (use)
+      (define ret (peek))
+      (if (string=? ret "")
+          ret
+          (begin (set! _pos (+ 1 _pos))
+                 ret)))
+
+    (define (until rx)
+      (do ((ret "" ret))
+        ((regex-test rx (peek))
+         ret)
+        (set! ret (string-append ret (use)))))
+
+    (define (get-ws) (until @"^(\S|$)"))
+
+    (define (get-regex)
+      (define ret "")
+      (define save-pos _pos)
+      (define done #f)
+      (use)
+      (unless (string=? (peek) "\"") (raise "error: meh"))
+      (use)
+      (define (loop)
+        (set! ret (string-append ret (until @"^(\\|\"|$)")))
+        (define next-char (peek))
+        (when (string=? next-char "")
+          (set! _pos save-pos)
+          (set! _need-input #t)
+          (set! done #t))
+        (when (string=? next-char "\"")
+          (use)
+          (set! done #t))
+        (when (string=? next-char "\\")
+          (use)
+          (set! next-char (peek))
+          (if (string=? next-char "\"")
+              (begin (use) (set! ret (string-append ret "\"")))
+              (begin
+                (set! ret (string-append ret "\\"))
+                (set! ret (string-append ret (use))))))
+
+        (if done (make-RegExp ret) (loop)))
+      (loop))
+
+    (define (get-string) (define ret "")
+      (define save-pos _pos)
+      (define done #f)
+      (use)
+      (define (loop)
+        (set! ret (string-append ret (until @"^(\\|\"|$)")))
+        (define next-char (peek))
+        (when (string=? next-char "")
+          (set! _pos save-pos)
+          (set! _need-input #t)
+          (set! done #t))
+        (when (string=? next-char "\"")
+          (use)
+          (set! done #t))
+        (when (string=? next-char "\\")
+          (use)
+          (set! next-char (peek))
+          (case next-char
+            (("\"") (begin (use) (set! ret (string-append ret "\\\""))))
+            (("n")  (begin (use) (set! ret (string-append ret "\\n"))))
+            (("r")  (begin (use) (set! ret (string-append ret "\\r"))))
+            (("t")  (begin (use) (set! ret (string-append ret "\\t"))))
+            (("f")  (begin (use) (set! ret (string-append ret "\\f"))))
+            (("b")  (begin (use) (set! ret (string-append ret "\\b"))))
+            (else (begin
+                    (set! ret (string-append ret "\\"))
+                    (set! ret (string-append ret (use)))))))
+
+        (if done (make-String ret) (loop)))
+      (loop))
+
+    (define (get-comment) (define ret (until @"\n")) (use) (list "comment" ret))
+
+    (define (get-hashval)
+      (define ret "")
+      (use)
+      (case (use)
+        (("t") (set! ret #t))
+        (("f") (set! ret #f))
+        (("!") (set! ret (get-comment)))
+        (("n") (set! ret nil))
+        (else
+          (raise (string-append  "unknown hashval: " (peek)))
+          nil))
+      ret)
+
+
+    (define (get-atom)
+      (define ret "")
+      (set! ret (string-append ret (until @"^(\s|\\|\"|'|`|,|\(|\)|$)")))
+      (define flt (string->number ret))
+      (set! ret (if (nan? flt) ret flt))
+      (set! ret (if (string=? ret "") nil ret))
+      ret)
+
+    (define (get-atom2)
+      (define ret "")
+      (define (loop)
+        (set! ret (string-append ret (until @"^(\s|\\|\"|'|`|,|\(|\)|$)")))
+        (define next-char (peek))
+        (if (string=? next-char "\\")
+            (begin
+              (use)
+              (set! ret (string-append ret (use)))
+              (loop))
+            #f))
+      ret)
+
+    (define (get-quoted) (raise "NotImplemented") "")
+
+    (define (get-expr) "" #f)
+
+    (define (get-list)
+      (define save-pos _pos)
+      (use)
+      (define ret
+        (do ((expr (get-expr) (get-expr))
+             (retv (list) retv))
+          ((nil? expr)
+           retv)
+          (set! retv (append retv (list expr)))))
+
+
+      (if (string=? (peek) ")")
+          (use)
+          (begin
+            (set! _pos save-pos)
+            (set! _need-input #t)
+            (set! ret (list))))
+      ret)
+
+    (define (get-expr)
+      (define ret "")
+      (set! _need-input #f)
+      (get-ws)
+      (define next-char (peek))
+      (case next-char
+        ((";") (set! ret (get-comment)))
+        (("\"") (set! ret (get-string)))
+        (("@") (set! ret (get-regex)))
+        (("#") (set! ret (get-hashval)))
+        (("(") (set! ret (get-list)))
+        (else (set! ret (get-atom))))
+      (get-ws)
+      ret)
+    (set! _stream str)
+
+    (cond ((string=? (peek) "#")
+           (until @"\n"))
+          (else #t))
+
+    (define expr (get-expr))
+    (when _need-input
+      (raise "more input needed"))
+
+    expr)
+  )
+
+

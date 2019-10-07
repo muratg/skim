@@ -1,0 +1,8 @@
+#!/usr/bin/env skim
+(let*
+  ((a 123)
+   (test (lambda (x) (* (+ x x) (- x 1))))
+   (test2 (lambda (x)
+           (skim-print (string-append "---> " (* (+ x x) (- x 1))))
+           "ello")))
+  (skim-print (string-append "->" a "<- :: " (test2 a))))

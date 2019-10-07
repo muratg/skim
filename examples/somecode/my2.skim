@@ -1,0 +1,9 @@
+  (define (ends-with str s)
+    (let*
+      ((len_str (length str))
+       (len_s (length s))
+       (loc (- len_str len_s ))
+       (sub (substring str loc len_str)))
+      (string=? s sub)
+
+      ))

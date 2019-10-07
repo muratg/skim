@@ -1,0 +1,7 @@
+(define-library
+  (skim boot start)
+  (export start)
+  (define (start args)
+    (if (num= 3 (length args))
+    (skim-compile-file (list-ref args 2))
+    (skim-print "Repl TBD."))))

@@ -1,0 +1,507 @@
+(define-library
+  (skim compiler emitter) (export emit)
+
+  ;; only exported function
+  (define (emit expanded env)
+
+    ;; BUG: these are for forward declaration... will handle these later with compiler bookkeeping
+    (define (emit-body) nil)
+    (define (emit-identifier) nil)
+    (define (hash-table-ref) nil)
+
+    (define (print x)
+      (display x)
+      (newline))
+
+
+    ;; scope/tracking
+    (define (new-var env name val)
+      ; (print (string-append "Defining new name " name " as " val "..." ))
+      (define fn (hash-table-ref env "newVar"))
+      (fn name val))
+    (define (get-var env name)
+      (define fn (hash-table-ref env "getVar"))
+      (fn name))
+    (define (has-var env name)
+      (define fn (hash-table-ref env "getVar"))
+      (fn name)
+      (not (nil? (fn name))))
+
+    ;; primitives
+    ;; all implementation at the end of the file
+    (define primitives (make-hash-table))
+    (define (prim name emitter)
+      (new-var env name #t)
+      (hash-table-set! primitives name emitter))
+    (define (is-prim name) (hash-table-exists? primitives name))
+    (define (get-emitter name)  (hash-table-ref primitives name))
+
+    ;; call a primitive
+    (define (emit-primcall expanded env)
+      (define head (car expanded))
+      (define args (cdr expanded))
+      (define emitter (get-emitter head))
+      (emitter args env))
+
+    ;; used by cond, case, when, unless
+    ;; MMM
+    ;; TODO: look into merging emit-body and some other ad-hoc ones here
+    (define (emit-multiple-exprs exprs env em_return div_str)
+      (define len (length exprs))
+      (define last (- len 1))
+      (define emitted
+        (map (lambda (e)
+               (string-append " " (emit e env) div_str "\n")
+               ) exprs))
+
+      (when em_return
+        (list-set! emitted last (string-append "return " (list-ref emitted last))))
+
+      (define ret (apply string-append emitted))
+      ;; (print ret)
+      ret)
+
+    ;; let
+    (define (emit-let expanded env)
+      (when (< (length expanded) 3)
+        (raise "emit-let requires 3 or more items"))
+      (define bod (cdr expanded))
+      (define vals (car bod))
+      (define exprs (cdr bod))
+      (unless (list? vals) (raise "let's first param should be a list"))
+      (define ret "")
+      ;; set scope...
+      (define new-env (skim-make-environment env))
+      (set! ret (string-append ret "(({" ))
+      ;; first pass for the variable names
+      (for-each
+        (lambda (x)
+          (new-var new-env (car x) #t)
+          ;; (print (string-append "NEW VAR: " (car x)))
+          (set! ret (string-append ret " "  (emit (car x) new-env) ", ")))
+        vals)
+      (define xs (emit-multiple-exprs exprs new-env #t ";"))
+      (set! ret (string-append ret "})=>{ " xs "})({" ))
+      ;; second pass for the variable values
+      (for-each
+        (lambda (x)
+          (define name (car x))
+          (define args (car (cdr x)))
+          (new-var new-env name #t)
+          ; (print (string-append "::: " name " ---> " args " <---- [[[ " env " **** " new-env " ]]]") )
+          (set! ret (string-append ret " "  (emit name new-env) ": " (emit args new-env) ", ")))
+        vals)
+      (set! ret (string-append ret "})" ))
+      ret)
+
+    ;; let*  (()=>{ let a = 10; let b = 20; .... body....  })()
+    (define (emit-let-star expanded env)
+      (when (< (length expanded) 3)
+        (raise "emit-let-star requires 3 or more items"))
+      (define bod (cdr expanded))
+      (define vals (car bod))
+      (define exprs (cdr bod))
+      (unless (list? vals) (raise "let*'s first param should be a list"))
+      (define ret "")
+      ;; set scope...
+      (define new-env (skim-make-environment env))
+      (set! ret (string-append ret "(()=>{" ))
+      ;; first pass for the variable names
+      (for-each
+        (lambda (x)
+          (define name (car x))
+          (define args (car (cdr x)))
+          (new-var new-env name #t)
+          ;; (print (string-append "::: " name " ---> " args " <---- [[[ " env " **** " new-env " ]]]") )
+          (set! ret (string-append ret "  let " (emit name new-env) " = " (emit args new-env) ";\n ")))
+        vals)
+
+      (set! ret (string-append ret "\n" ))
+
+      (define xs (emit-multiple-exprs exprs new-env #t ";"))
+      (set! ret (string-append ret "\n" xs "})()" ))
+      ret)
+
+
+    ;; cond works nicely
+    (define (emit-cond expanded env)
+      (when (< (length expanded) 2)
+        (raise "emit-cond requires 2 or more items"))
+      (define clauses (cdr expanded))
+      (define ret "(()=>{\n")
+      (for-each (lambda (clause i)
+                  (define pred (car clause))
+                  (define conseqs (cdr clause))
+                  (define tok (if (= i 0) "if" "else if"))
+                  (define css (emit-multiple-exprs conseqs env #t ";" ))
+                  (set! ret (string-append "  " ret (if (string=? pred "else") pred (string-append tok " (" (emit pred env) ")")) "{" css "}\n"))
+                  #t
+                  ) clauses)
+      (set! ret (string-append ret "})()"))
+      ret)
+
+    ;; case works nicely
+    (define (emit-case expanded env)
+      (when (< (length expanded) 3)
+        (raise "emit-case requires 3 or more items"))
+      (define body (cdr expanded))
+      (define key (car body))
+      (define clauses (cdr body))
+      (define ret (string-append  "(() => { switch (" (emit key env) ") {"))
+      (for-each
+        (lambda (clause)
+          (define vals (car clause))
+          (define conseqs (cdr clause))
+          (cond ((list? vals)
+                 (for-each
+                   (lambda (v)
+                     (set! ret (string-append "   " ret "case " (emit v env) ":" )))
+                   vals))
+                ((string=? vals "else")
+                 (set! ret (string-append "  " ret "default:")))
+                (else
+                  (raise "case issues...")
+                  nil))
+          (set! ret (string-append "   " ret (emit-multiple-exprs conseqs env #t ";") " "))
+          )
+        clauses)
+      (set! ret (string-append ret "}})()"))
+      ret)
+
+    ;; when's nice
+    (define (emit-when expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "emit-when requires 3 or more items"))
+      (define bod (cdr expanded))
+      (define tst (car bod))
+      (define conseqs (cdr bod))
+      (define ret (string-append "if (" (emit tst env) ") {\n" (emit-multiple-exprs conseqs env #f ";") "}\n" ))
+      ret)
+
+    ;; unless's nice
+    (define (emit-unless expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "emit-when requires 3 or more items"))
+      (define bod (cdr expanded))
+      (define tst (car bod))
+      (define conseqs (cdr bod))
+      (define ret (string-append "if (!" (emit tst env) ") {\n" (emit-multiple-exprs conseqs env #f ";") "}\n" ))
+      ret )
+
+    ;; if is questionable. ternary operator is nice for expr. but (begin ..) seems problematic.
+    ;; TODO: check it out
+    (define (emit-if expanded env)
+      (unless (= (length expanded) 4)
+        (raise "emit-if requires 4 items"))
+      (define tst (list-ref expanded 1))
+      (define conseq (list-ref expanded 2))
+      (define alt (list-ref expanded 3))
+      (string-append "" (emit tst env) " ? " (emit conseq env) " : " (emit alt env)))
+
+    ;; DO: check if can be improved
+    (define (emit-do expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "do requires 3 or more items"))
+      (define body (cdr expanded))
+      (define vars (car body))
+      (define test_exprs (car (cdr body)))
+      (define cmds (cdr (cdr body)))
+      (define test (car test_exprs))
+      (define exprs (cdr test_exprs))
+      (define ret "(() => {")
+
+      (for-each
+        (lambda (v)
+          (define name (list-ref v 0))
+          (define init (list-ref v 1))
+          (define _step (list-ref v 2))
+          (set! ret (string-append "  " ret "let " (emit name env) " = " (emit init env) ";\n")))
+        vars)
+
+      (set! ret (string-append "  " ret "while(!(" (emit test env) ")) {\n"))
+
+      (for-each
+        (lambda (c)
+          (set! ret (string-append "      " ret (emit c env) ";\n")))
+        cmds)
+
+      (for-each
+        (lambda (v)
+          (define name (list-ref v 0))
+          (define _init (list-ref v 1))
+          (define step (list-ref v 2))
+          (set! ret (string-append "  " ret (emit name env) " = " (emit step env) ";\n")))
+        vars)
+
+      (set! ret (string-append "  " ret "}\n"))
+
+      (define evExprs (map (lambda (x) (string-append (emit x env) ";\n")) exprs))
+      (define last (- (length evExprs) 1))
+      (list-set! evExprs last (string-append "return " (list-ref evExprs last)))
+      (define evExprsJoined (apply string-append evExprs))
+      (set! ret (string-append ret " " evExprsJoined))
+      (set! ret (string-append ret "})()"))
+      ret)
+
+
+
+    ;; lamda is nice
+    (define (emit-lambda expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "lambda requires 3 or more items"))
+      (define body (cdr expanded))
+      (define argnames (car body))
+      (define bod (cdr body))
+
+      (define argsExpr (string-append (map (lambda (x) (string-append "" x)) argnames)))
+      (define bodExpr (if (= (length bod) 1)
+                          (emit (list-ref bod 0) env)
+                          (string-append "{" (emit-body bod env) "}")))
+      (define ret (string-append "(" argsExpr ") => " bodExpr  ))
+      ret)
+
+    ;; fine for now
+    (define (emit-proccall expanded env)
+      (define name (emit-identifier (car expanded) env))
+      (define args
+        (map (lambda (x)
+               (string-append (emit x env) "") )
+             (cdr expanded)))
+      (define ret (string-append "" name "(" args ")"))
+      ret)
+
+    ;; see if code can be shared
+    (define (emit-namedfunction name argnames bod env)
+      (define ret "")
+
+      (define argsExpr (string-append (map (lambda (x) (string-append "" x)) argnames)))
+      (define bodExpr (if (= (length bod) 1)
+                          (emit (list-ref bod 0) env)
+                          (string-append "{" (emit-body bod env) "}")))
+
+      (define retclause (if (= (length bod) 1)
+                            (string-append "{ return " bodExpr "}")
+                            (string-append " " bodExpr "")))
+
+
+      (set! ret (string-append "function " (emit-identifier name env) "(" argsExpr ")" retclause ))
+      ret)
+
+    ;; TODO: imports.  and exports can be anywhere!
+    (define (emit-define-library expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "define-library requires 3 or more items"))
+      (define body (cdr expanded))
+      (define name (car body))
+      (define libbody (cdr body))
+      (define exports (car libbody))
+      (define clauses (cdr libbody))
+      (define exportshead (car exports))
+      (define exportsbody (cdr exports))
+      (unless (string=? exportshead "export")
+        (raise "export statement expected here"))
+      (define ret (string-append "// LIBRARY: " name "\n"))
+      (map (lambda
+             (clause)
+             (set! ret (string-append " " ret "" (emit clause env) ";\n")) )
+           clauses)
+      (map (lambda
+             (ex)
+             (set! ret (string-append " " ret "exports." ex " = " ex ";\n" )))
+           exportsbody)
+      ret)
+
+    ;; apply
+    (define (emit-apply expanded env)
+      (unless (= (length expanded) 3)
+        (raise "apply requires 3 items"))
+      (define ret "")
+      (define body (cdr expanded))
+      (define fn (car body))
+      (define args (cdr body))
+      (define new-expanded (list fn (string-append "..." args)))
+      (set! ret (emit new-expanded env))
+      ret)
+
+    ;; define
+    (define (emit-define expanded env)
+      (unless (>= (length expanded) 3)
+        (raise "define requires 3 or more items"))
+      (define body (cdr expanded))
+      (define name (car body))
+      (define exps (cdr body))
+      (define ret "")
+      (cond ((list? name)
+             (define actual-name (car name))
+             (define args (cdr name))
+             (set! name actual-name)
+             (new-var env name #t)
+             (set! ret (emit-namedfunction name args exps env)))
+            (else
+              (new-var env name #t)
+              (set! ret (string-append "let " (emit name env) " = " (emit-body exps env) ""))))
+      ret)
+
+    ;; body... sharing code?
+    (define (emit-body expanded env)
+      (define exps (map (lambda (x) (string-append "" (emit x env) ";\n")) expanded))
+      (define len (length exps))
+      (define last (- len 1))
+      (when (> len 1)
+        (list-set! exps last (string-append "return " (list-ref exps last) )))
+      (define ret (apply string-append exps))
+      ret)
+
+    ;; there be issues
+    (define (emit-begin expanded env)
+      (define args (cdr expanded))
+      (define exps (map (lambda (x) (emit x env)) args))
+      (define ret (string-append "(" exps ")"))
+      ret)
+
+    ;; should have options.. inside begin, this may have issues..
+    (define (emit-set expanded env)
+      (when (< (length expanded) 3)
+        (raise "emit-set requires 3 or more items"))
+      (define name (list-ref expanded 1))
+      (define val (list-ref expanded 2))
+      (define ret (string-append (emit name env) " = " (emit val env)))
+      ret)
+
+    ;; ??
+    (define (emit-list expanded env)
+      (cond ((null? expanded) "[]")
+            ((is-prim  (list-ref expanded 0)) (emit-primcall expanded env))
+            ((string=? (list-ref expanded 0) "let") (emit-let expanded env))
+            ((string=? (list-ref expanded 0) "let*") (emit-let-star expanded env))
+            ((string=? (list-ref expanded 0) "if") (emit-if expanded env))
+            ((string=? (list-ref expanded 0) "when") (emit-when expanded env))
+            ((string=? (list-ref expanded 0) "unless") (emit-unless expanded env))
+            ((string=? (list-ref expanded 0) "cond") (emit-cond expanded env))
+            ((string=? (list-ref expanded 0) "case") (emit-case expanded env))
+            ((string=? (list-ref expanded 0) "do") (emit-do expanded env))
+            ((string=? (list-ref expanded 0) "lambda") (emit-lambda expanded env))
+            ((string=? (list-ref expanded 0) "define") (emit-define expanded env))
+            ((string=? (list-ref expanded 0) "define-library") (emit-define-library expanded env))
+            ((string=? (list-ref expanded 0) "begin") (emit-begin expanded env))
+            ((string=? (list-ref expanded 0) "set!") (emit-set expanded env))
+            ((string=? (list-ref expanded 0) "apply") (emit-apply expanded env))
+            ((string=? (list-ref expanded 0) "comment") (string-append "/* " (cdr expanded )" */\n"))
+            (else
+              (define name (list-ref expanded 0))
+              (define val (get-var env name))
+              (cond (val
+                      ; (print (string-append "proc call --> " name " ... " val))
+                      (emit-proccall expanded env))
+                    (else
+                      ; (print (string-append "NOT proc call --> " name " ... " val " ...___ " expanded))
+                      ;; TODO: this should work:
+                      (string-append "" name "")
+                      ;; (string-append "" (emit (car expanded) env))
+                      ;; (string-append "" (emit (car expanded) env) "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa" (emit (cdr expanded) env)")")
+                      )))))
+
+    ;; TODO; check identifier better
+    (define (emit-identifier expanded env)
+      (define ret "")
+      (if (string=? expanded "nil")
+          "null"
+          (begin
+            (set! ret (string-replace (string-append "" expanded) "-" "_"))
+            (set! ret (string-replace ret "-" "_"))
+            (set! ret (string-replace ret "?" "_"))
+            (set! ret (string-replace ret "!" "_"))
+            ret)))
+
+    (define (emit-regex expanded env) expanded)
+
+    (define (emit-expr expanded env)
+      ;;(print (string-append "REGEX????????????????????? "  expanded "???"))
+      (cond
+        ((number? expanded) (string-append "" expanded))
+        ((boolean? expanded) (string-append "" expanded))
+        ((String? expanded) (string-append "\"" expanded "\""))
+        ((string? expanded)  (emit-identifier expanded env))
+        ((regex? expanded)   (emit-regex expanded env))
+        ((list? expanded)  (emit-list expanded env))
+        (else (raise "mm?") nil)))
+
+    ;; cleanup opportunities here
+    (prim "or" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "||")) x)  " false)"           ""  )))
+    (prim "and" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "&&")) x)  " true)"           ""  )))
+    (prim "string-append" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  x) "].join('')"   ""  )))
+    (prim "list" (lambda (x env) (string-append ""          "["  (map (lambda (e) (string-append (emit e env)))  x) "]"            ""  )))
+
+    (prim "add1" (lambda (x env) (string-append ""  (emit (list-ref x 0) env)  " + 1 "  "" )))
+    (prim "sub1" (lambda (x env) (string-append ""  (emit (list-ref x 0) env)  " - 1 " "" )))
+    (prim "zero?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) " === 0 "  "" )))
+    (prim "number?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'number')" "" )))
+    (prim "boolean?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'boolean')" "" )))
+    (prim "regex?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof RegExp)" "" )))
+    (prim "nan?" (lambda (x env) (string-append "" "isNaN(" (emit (list-ref x 0) env) ")"  "" )))
+    (prim "string->number" (lambda (x env) (string-append "" "parseFloat(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "String?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof String)" "" )))
+    (prim "+" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "+"  (emit (list-ref x 1) env)  ")" )))
+    (prim "-" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "-"  (emit (list-ref x 1) env)  ")" )))
+    (prim "*" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "*"  (emit (list-ref x 1) env)  ")" )))
+    (prim "/" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "/"  (emit (list-ref x 1) env)  ")" )))
+    (prim "=" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "==="  (emit (list-ref x 1) env)  ")" )))
+    (prim ">" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  ">"  (emit (list-ref x 1) env)  ")" )))
+    (prim "<" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "<"  (emit (list-ref x 1) env)  ")" )))
+    (prim ">=" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  ">="  (emit (list-ref x 1) env)  ")" )))
+    (prim "<=" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "<="  (emit (list-ref x 1) env)  ")" )))
+    (prim "not" (lambda (x env) (string-append "" "!("(emit (list-ref x 0) env)  ")" )))
+
+
+    (prim "string?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'string')" "" )))
+    (prim "string-length" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".length" "" )))
+    (prim "string-ref" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "]" "" )))
+    (prim "string=?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) " === " (emit (list-ref x 1) env)  "" )))
+    (prim "string-copy" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".slice(" (emit (list-ref x 1) env) "," (emit (list-ref x 2) env) ")" "" )))
+    (prim "string-replace" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".replace(" (emit (list-ref x 1) env) "," (emit (list-ref x 2) env) ")" "" )))
+
+
+    (prim "list?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof Array)"  "" )))
+    (prim "null?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".length === 0 " "" )))
+    (prim "append" (lambda (x env) (string-append "" "[..." (emit (list-ref x 0) env) ", ..." (emit (list-ref x 1) env) "]" "" )))
+    (prim "length" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".length" "" )))
+    (prim "list-ref" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "]" "" )))
+    (prim "list-set!" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "] = " (emit (list-ref x 2) env) "" )))
+    (prim "car" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[0]"  "" )))
+    (prim "cdr" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".slice(1)"  "" )))
+    (prim "drop" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".slice(" (emit (list-ref x 1) env) ")"  "" )))
+
+    (prim "for-each" (lambda (x env) (string-append ""  (emit (list-ref x 1) env) ".forEach(" (emit (list-ref x 0) env) ")"  "" )))
+    (prim "map" (lambda (x env) (string-append ""  (emit (list-ref x 1) env) ".map(" (emit (list-ref x 0) env) ")"  "" )))
+
+    (prim "make-hash-table" (lambda (x env) (string-append "" "{}" "" )))
+    (prim "hash-table?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'object')" "" )))
+    (prim "hash-table-ref" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "]" "" )))
+
+    (prim "raise" (lambda (x env) (string-append "" "throw new Error(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "display" (lambda (x env) (string-append "" "process.stdout.write('' + " (emit (list-ref x 0) env) ")" "" )))
+    (prim "newline" (lambda (x env) (string-append "" "process.stdout.write('\\n')" "" )))
+
+    ;; checks for JavaScript null and undefined (via "==")
+    (prim "nil?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "== null"  "" )))
+
+    (prim "hash-table-set!" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "] = " (emit (list-ref x 2) env)  "" )))
+    (prim "hash-table-exists?" (lambda (x env) (string-append "" "Object.keys(" (emit (list-ref x 0) env) ").includes(" (emit (list-ref x 1) env) ")" "" )))
+    (prim "regex-test" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".test(" (emit (list-ref x 1) env) ")" "" )))
+    (prim "make-RegExp" (lambda (x env) (string-append "" "new RegExp(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "make-String" (lambda (x env) (string-append "" "new String(" (emit (list-ref x 0) env) ")" "" )))
+
+
+    (prim "skim-load" (lambda (x env) (string-append "" "require('fs').readFileSync(" (emit (list-ref x 0) env) ", 'utf8')" "" )))
+    (prim "skim-save" (lambda (x env) (string-append "" "require('fs').writeFileSync(" (emit (list-ref x 0) env) ","  (emit (list-ref x 1) env) ")" "" )))
+    (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-emit" (lambda (x env) (string-append "" "require('./skim-boot-emitter').emit(" (emit (list-ref x 0) env) "," (emit (list-ref x 1) env) ")" "" )))
+    (prim "skim-compile" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-compile-file" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile_file(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-prettier" (lambda (x env) (string-append "" "require('prettier').format(" (emit (list-ref x 0) env) ", { semi: true, parser: 'babel' } )" "" )))
+    ; (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`" (emit (list-ref x 0) env) "`)" "" )))
+    (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`${" x "}`)" "" )))
+    (prim "command-line" (lambda (x env) "process.argv.slice(1)"))
+
+    (emit-expr expanded env)))

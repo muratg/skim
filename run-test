@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+SKIM='node ./bin/skim.js' ./scripts/test.sh

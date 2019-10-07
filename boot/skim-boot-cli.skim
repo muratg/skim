@@ -1,0 +1,39 @@
+(define-library (skim boot cli)
+  (export compile compile_file start)
+
+  (define (print x)
+    (display x)
+    (newline))
+
+  (define (compile source)
+    (define global-env (skim-make-environment nil))
+    (define ast (skim-parse source))
+    (define expanded ast)
+    (define output (skim-emit expanded global-env))
+    (define formatted (skim-prettier output))
+    formatted)
+
+  (define (compile_file name)
+    (define source (skim-load name))
+    (define output (skim-compile source))
+    (define new-name (string-replace name ".skim" ".js"))
+    (set! new-name (string-replace new-name ".ss" ".js"))
+    (set! new-name (string-replace new-name ".scm" ".js"))
+    (skim-save new-name output)
+    output)
+
+  (define output "")
+
+  (define (skim-help)
+    (define help "")
+    (set! help (string-append help "SkimJS" "\n"))
+    (set! help (string-append help "Help: TBD" "\n"))
+    (display help))
+
+  (define (start)
+    (define args (command-line))
+    (if (= 2 (length args))
+    (begin
+      (set! output (skim-compile-file (list-ref args 1)))
+      (skim-js-eval output))
+    (skim-help))))

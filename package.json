@@ -1,0 +1,36 @@
+{
+  "name": "skimjs",
+  "version": "0.0.10",
+  "description": "Skim CLI",
+  "keywords": [
+    "cli",
+    "skim",
+    "scheme",
+    "language",
+    "compiler",
+    "r7rs",
+    "r5rs"
+  ],
+  "author": "muratg",
+  "license": "MIT",
+  "main": "bin/skim.js",
+  "bin": {
+    "skim": "bin/skim.js"
+  },
+  "files": [
+    "bin",
+    "node_modules"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "prettier": "^1.18.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "dev-install-skim": "sudo npm i -g",
+    "dev-uninstall-skim": "sudo npm uninstall -g",
+    "PUBLISH-NPM": "npm publish"
+  }
+}

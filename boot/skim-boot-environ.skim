@@ -1,0 +1,25 @@
+(define-library
+  (skim compiler env)
+  (export make_environment)
+
+  (define (make_environment parentenv)
+    (define env (make-hash-table))
+    (define ret (make-hash-table))
+
+    (hash-table-set!
+      ret "__parentEnv" parentenv)
+
+    (hash-table-set!
+      ret "__env" env)
+
+    (hash-table-set!
+      ret "newVar" (lambda (name val) (hash-table-set! env name val)))
+
+    (hash-table-set!
+      ret "getVar" (lambda (name)
+                     (cond ((hash-table-exists? env name) (hash-table-ref env name))
+                           ((nil? parentenv) nil)
+                           (else
+                             (define getfn (hash-table-ref parentenv "getVar"))
+                             (getfn name)))))
+    ret))

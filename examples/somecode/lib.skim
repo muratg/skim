@@ -1,0 +1,15 @@
+(define-library
+
+  (skim parser)
+
+  (export parse abc)
+
+  (define (abc p q)
+    "eooo"
+    (num- p q))
+
+  (define (parse str)
+    "eyy"
+    (num* 1 2))
+
+  )
