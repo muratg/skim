@@ -1,1 +1,85 @@
-HELLO
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Information about SkimJS!">
+    <meta name="author" content="muratg">
+    <title>SkimJS programming language.</title>
+    <link href="../../dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  </head>
+  <body class="text-center">
+
+    <div class="cover-container top d-flex h-100 p-3 mx-auto flex-column">
+      <header class="masthead mb-auto">
+        <div class="inner">
+          <h3 class="masthead-brand">SkimJS</h3>
+          <nav class="nav nav-masthead justify-content-center">
+            <a class="nav-link active" href="#what">What?</a>
+            <a class="nav-link" href="#how">How?</a>
+            <a class="nav-link" href="#docs">Docs</a>
+          </nav>
+        </div>
+      </header>
+
+      <div id="what" class="cover mt-2">
+        <h1 class="cover-heading">What's SkimJS?</h1>
+        <p class="lead mt-2">SkimJS is a self-hosting compiler for a subset of Scheme (R7RS) that compiles into readable, nice JavaScript.</p>
+      </div>
+
+      <div id="how" class="cover mt-2">
+        <h1 class="cover-heading">How can I try it?</h1>
+        <p class="lead mt-2">
+          SkimJS is a very new project, it's just a few weeks old! <br />
+          It can compile only a very small subset of Scheme, barely enough to self-host. <br />
+          <br />
+          If you'd like to give it a try (warning, <i>it's early stages</i>) try this:
+          <br />
+          <code> npm i -g skimjs </code>
+          <br />
+          Compile code with <code> skim filename.skim </code>.
+        </p>
+      </div>
+
+      <div id="docs" class="container mt-2">
+        <h1 class="cover-heading">Documentation</h1>
+        <p class="lead mt-2">No documentation yet (apart from this page.)</p>
+      <div class="d-flex container ml-5" class="ml-5">
+        <pre style="text-align: left">
+(define (factorial n)
+  (cond ((num< n 0) #f)
+    ((num<= n 1) 1)
+    (else (num* n
+                (factorial (num- n 1))))))
+        </pre>
+
+        <pre style="text-align: left" class="ml-5">
+function factorial(n) {
+  return (() => {
+    if (n < 0) {
+      return false;
+    } else if (n <= 1) {
+      return 1;
+    } else {
+      return n * factorial(n - 1);
+    }
+  })();
+}
+        </pre>
+      </div>
+      </div>
+
+      <footer class="mastfoot mt-auto">
+        <div class="inner">
+          SkimJS (c) 2019 by muratg <br /> MIT License
+        </div>
+      </footer>
+    </div>
+
+
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+  </body>
+</html>
