@@ -18,7 +18,7 @@
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link active" href="#what">What?</a>
             <a class="nav-link" href="#how">How?</a>
-            <a class="nav-link" href="#docs">Docs</a>
+            <a class="nav-link" href="#example">Show me!</a>
           </nav>
         </div>
       </header>
@@ -29,44 +29,28 @@
       </div>
 
       <div id="how" class="cover mt-2">
-        <h1 class="cover-heading">How can I try it?</h1>
+        <h1 class="cover-heading">How?</h1>
         <p class="lead mt-2">
           SkimJS is a very new project, it's just a few weeks old! <br />
           It can compile only a very small subset of Scheme, barely enough to self-host. <br />
           <br />
-          If you'd like to give it a try (warning, <i>it's early stages</i>) try this:
-          <br />
-          <code> npm i -g skimjs </code>
-          <br />
-          Compile code with <code> skim filename.skim </code>.
+           If you'd like to give it a try (warning: <i>it's early stages</i>):
+          <ul>
+            <li>Install skim globally (or do your thing if you know what you're doing) <code> npm i -g skimjs </code></li>
+            <li> Create a file mycode.ss and write some scheme code. </li>
+            <li>Compile code with <code> skim mycode.ss </code></li>
+          </ul>
+        </p>
+        <p class="lead mt-2">
+          Repo: <a href="https://github.com/muratg/skim">https://github.com/muratg/skim</a>
         </p>
       </div>
 
-      <div id="docs" class="container mt-2">
-        <h1 class="cover-heading">Documentation</h1>
-        <p class="lead mt-2">No documentation yet (apart from this page.)</p>
-      <div class="d-flex container ml-5" class="ml-5">
-        <pre style="text-align: left">
-(define (factorial n)
-  (cond ((< n 0) #f)
-    ((<= n 1) 1)
-    (else (* n
-                (factorial (- n 1))))))
-        </pre>
-
-        <pre style="text-align: left" class="ml-5">
-function factorial(n) {
-  return (() => {
-    if (n < 0) {
-      return false;
-    } else if (n <= 1) {
-      return 1;
-    } else {
-      return n * factorial(n - 1);
-    }
-  })();
-}
-        </pre>
+      <div id="example" class="container mt-2">
+        <h1 class="cover-heading">Examples</h1>
+      <div class="container ml-5" class="ml-5">
+        <script src="https://gist.github.com/muratg/4c17f273a5c0aa2cc855169d2708d997.js"></script>
+        <script src="https://gist.github.com/muratg/7e5d5b5eeae716827755caba386d7989.js"></script>
       </div>
       </div>
 
