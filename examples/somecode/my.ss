@@ -17,10 +17,5 @@
 (count2)
 (count2)
 
-(quote 1)
-(quote #t)
-(quote (1 2 3 "hello"))
-(quote "a")
-
 (display "Hello!") (newline)
 )

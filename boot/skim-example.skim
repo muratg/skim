@@ -40,6 +40,19 @@
   (define (get-emitter2 name) (hash-table-ref primitives name))
   (define (is-prim2 name) ""  (hash-table-exists? primitives name))
 
+
+  ; ; need something like this. ;; srfi 69
+  ; (define ret (alist->hash-table `(
+  ;   (add-input! ,add-input!)
+  ;   (clear-input! ,clear-input!)
+  ;   (has-expr? ,has-expr?)
+  ;   (get-expr ,get-expr)
+  ; )))
+  ;; and..
+  ; (string-join ... ",") ;; sfri 130
+
+
+
   ;; some call patterns (problematic)
   (+ 1 2)
 
@@ -76,6 +89,9 @@
          (b 20))
     (+ a b)
     (* b a))
+
+  ;; join
+  (string-join (list "a" "b") ",")
 
   ;; command-line
   (print (command-line))

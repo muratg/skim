@@ -1,4 +1,4 @@
-// LIBRARY: skim,compiler,parser
+// LIBRARY: skim-compiler-parser
 function parse(str) {
   let _stream = "";
   let _pos = 0;

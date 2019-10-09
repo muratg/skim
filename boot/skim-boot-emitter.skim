@@ -1,5 +1,7 @@
 (define-library
-  (skim compiler emitter) (export emit)
+  (skim compiler emitter)
+  (import (only (./skim boot environ) make-environment))
+  (export emit)
 
   ;; only exported function
   (define (emit expanded env)
@@ -71,7 +73,7 @@
       (unless (list? vals) (raise "let's first param should be a list"))
       (define ret "")
       ;; set scope...
-      (define new-env (skim-make-environment env))
+      (define new-env (make-environment env))
       (set! ret (string-append ret "(({" ))
       ;; first pass for the variable names
       (for-each
@@ -104,7 +106,7 @@
       (unless (list? vals) (raise "let*'s first param should be a list"))
       (define ret "")
       ;; set scope...
-      (define new-env (skim-make-environment env))
+      (define new-env (make-environment env))
       (set! ret (string-append ret "(()=>{" ))
       ;; first pass for the variable names
       (for-each
@@ -253,6 +255,7 @@
       (define argnames (car body))
       (define bod (cdr body))
 
+      ;; TODO: make new env, add argnames there.. and run body with that env.
       (define argsExpr (string-append (map (lambda (x) (string-append "" x)) argnames)))
       (define bodExpr (if (= (length bod) 1)
                           (emit (list-ref bod 0) env)
@@ -288,7 +291,7 @@
       ret)
 
     ;; TODO: imports.  and exports can be anywhere!
-    (define (emit-define-library expanded env)
+    (define (emit-define-library_old expanded env)
       (unless (>= (length expanded) 3)
         (raise "define-library requires 3 or more items"))
       (define body (cdr expanded))
@@ -307,10 +310,58 @@
            clauses)
       (map (lambda
              (ex)
-             (set! ret (string-append " " ret "exports." ex " = " ex ";\n" )))
+             (set! ret (string-append " " ret "exports." (emit ex env) " = " (emit ex env) ";\n" )))
            exportsbody)
       ret)
 
+    (define (emit-define-library expanded env)
+      (unless (>= (length expanded) 2)
+        (raise "define-library requires 2 or more items"))
+      (define body (cdr expanded))
+      (define name (car body))
+
+      ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future.
+      (define libbody (cdr body))
+
+      (define ret (string-append "// LIBRARY: "  (string-join name "-") "\n"))
+
+      (define body-exprs (list))
+      (define import-exprs (list))
+      (define export-exprs (list))
+
+      (map
+        (lambda (toplevel)
+          (define head (car toplevel))
+          (case head
+            (("export") (set! export-exprs (append export-exprs (cdr toplevel))))
+            (("import") (set! import-exprs  (append import-exprs (cdr toplevel))))
+            (else (set! body-exprs  (append body-exprs  (list toplevel))))
+            )) libbody)
+      (map (lambda (ex)
+             (define import-style (car ex))
+             (define import-name (car (cdr ex)))
+             (define import-values (cdr (cdr ex)))
+             (case import-style
+               (("only")
+                (define vals (map (lambda (v) (new-var env v #t) (emit-identifier v env)) import-values))
+                (define vals-joined (string-join vals ","))
+                (set! ret
+                  (string-append " " ret "const { " vals-joined " } = require('" (string-join import-name "-") "');\n" )))
+               (("prefix")
+                (raise "prefix not yet supported in include")
+                (set! ret
+                  (string-append " " ret "/* const " (emit-identifier import-values env) " = require('" (string-join import-name "-") "')*/ \n")))
+               (else
+                 ; TODO: BUG: nil shouldn't be required here but oh well
+                 (raise "only or prefix expected in include statement") nil))
+             ) import-exprs)
+      (map (lambda (clause)
+             (set! ret (string-append " " ret "" (emit clause env) ";\n")) )
+           body-exprs)
+      (map (lambda (ex)
+             (set! ret (string-append " " ret "exports." (emit ex env) " = " (emit ex env) ";\n" )))
+           export-exprs)
+      ret)
     ;; apply
     (define (emit-apply expanded env)
       (unless (= (length expanded) 3)
@@ -368,6 +419,15 @@
       (define ret (string-append (emit name env) " = " (emit val env)))
       ret)
 
+    ;; quoted.
+    (define (emit-quote expanded env)
+      (unless (= (length expanded) 2)
+        (raise "emit-quote requires 2 items"))
+      (define val (car (cdr expanded)))
+      (define new-env (make-environment env))
+      (new-var new-env val #t)
+      (emit-identifier val new-env))
+
     ;; ??
     (define (emit-list expanded env)
       (cond ((null? expanded) "[]")
@@ -386,6 +446,7 @@
             ((string=? (list-ref expanded 0) "begin") (emit-begin expanded env))
             ((string=? (list-ref expanded 0) "set!") (emit-set expanded env))
             ((string=? (list-ref expanded 0) "apply") (emit-apply expanded env))
+            ((string=? (list-ref expanded 0) "quote") (emit-quote expanded env))
             ((string=? (list-ref expanded 0) "comment") (string-append "/* " (cdr expanded )" */\n"))
             (else
               (define name (list-ref expanded 0))
@@ -409,8 +470,8 @@
           (begin
             (set! ret (string-replace (string-append "" expanded) "-" "_"))
             (set! ret (string-replace ret "-" "_"))
-            (set! ret (string-replace ret "?" "_"))
-            (set! ret (string-replace ret "!" "_"))
+            (set! ret (string-replace ret "?" "P"))
+            (set! ret (string-replace ret "!" "W"))
             ret)))
 
     (define (emit-regex expanded env) expanded)
@@ -429,7 +490,6 @@
     ;; cleanup opportunities here
     (prim "or" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "||")) x)  " false)"           ""  )))
     (prim "and" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "&&")) x)  " true)"           ""  )))
-    (prim "string-append" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  x) "].join('')"   ""  )))
     (prim "list" (lambda (x env) (string-append ""          "["  (map (lambda (e) (string-append (emit e env)))  x) "]"            ""  )))
 
     (prim "add1" (lambda (x env) (string-append ""  (emit (list-ref x 0) env)  " + 1 "  "" )))
@@ -452,13 +512,17 @@
     (prim "<=" (lambda (x env) (string-append "("  (emit (list-ref x 0) env)  "<="  (emit (list-ref x 1) env)  ")" )))
     (prim "not" (lambda (x env) (string-append "" "!("(emit (list-ref x 0) env)  ")" )))
 
-
+    (prim "string-append" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  x) "].join('')"   ""  )))
     (prim "string?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'string')" "" )))
     (prim "string-length" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".length" "" )))
     (prim "string-ref" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "]" "" )))
     (prim "string=?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) " === " (emit (list-ref x 1) env)  "" )))
     (prim "string-copy" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".slice(" (emit (list-ref x 1) env) "," (emit (list-ref x 2) env) ")" "" )))
     (prim "string-replace" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".replace(" (emit (list-ref x 1) env) "," (emit (list-ref x 2) env) ")" "" )))
+
+    ;; srfi 130
+    ;; (prim "string-join" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  (car x)) "].join('" (emit (car (cdr x)) env) " ')"   ""  )))
+    (prim "string-join" (lambda (x env) (string-append "" (emit (car x) env)  ".join(" (emit (car (cdr x)) env) " )"   ""  )))
 
 
     (prim "list?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof Array)"  "" )))
@@ -494,11 +558,14 @@
 
     (prim "skim-load" (lambda (x env) (string-append "" "require('fs').readFileSync(" (emit (list-ref x 0) env) ", 'utf8')" "" )))
     (prim "skim-save" (lambda (x env) (string-append "" "require('fs').writeFileSync(" (emit (list-ref x 0) env) ","  (emit (list-ref x 1) env) ")" "" )))
-    (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" )))
-    (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" )))
-    (prim "skim-emit" (lambda (x env) (string-append "" "require('./skim-boot-emitter').emit(" (emit (list-ref x 0) env) "," (emit (list-ref x 1) env) ")" "" )))
-    (prim "skim-compile" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile(" (emit (list-ref x 0) env) ")" "" )))
-    (prim "skim-compile-file" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile_file(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-exec" (lambda (x env) (string-append "" "require('child_process').execSync(" (emit (list-ref x 0) env) ")" "" )))
+
+    ; (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" )))
+    ; (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" )))
+    ; (prim "skim-emit" (lambda (x env) (string-append "" "require('./skim-boot-emitter').emit(" (emit (list-ref x 0) env) "," (emit (list-ref x 1) env) ")" "" )))
+
+    ; (prim "skim-compile" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile(" (emit (list-ref x 0) env) ")" "" )))
+    ; (prim "skim-compile-file" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile_file(" (emit (list-ref x 0) env) ")" "" )))
     (prim "skim-prettier" (lambda (x env) (string-append "" "require('prettier').format(" (emit (list-ref x 0) env) ", { semi: true, parser: 'babel' } )" "" )))
     ; (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`" (emit (list-ref x 0) env) "`)" "" )))
     (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`${" x "}`)" "" )))

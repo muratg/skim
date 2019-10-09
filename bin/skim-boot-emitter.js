@@ -1,4 +1,5 @@
-// LIBRARY: skim,compiler,emitter
+// LIBRARY: skim-compiler-emitter
+const { make_environment } = require("./skim-boot-environ");
 /* ;; only exported function */
 function emit(expanded, env) {
   /* ;; BUG: these are for forward declaration... will handle these later with compiler bookkeeping */
@@ -77,7 +78,7 @@ function emit(expanded, env) {
     }
     let ret = "";
     /* ;; set scope... */
-    let new_env = require("./skim-boot-environ").make_environment(env);
+    let new_env = make_environment(env);
     ret = [ret, "(({"].join("");
     /* ;; first pass for the variable names */
     vals.forEach(x => {
@@ -118,7 +119,7 @@ function emit(expanded, env) {
     }
     let ret = "";
     /* ;; set scope... */
-    let new_env = require("./skim-boot-environ").make_environment(env);
+    let new_env = make_environment(env);
     ret = [ret, "(()=>{"].join("");
     /* ;; first pass for the variable names */
     vals.forEach(x => {
@@ -309,6 +310,7 @@ function emit(expanded, env) {
     let body = expanded.slice(1);
     let argnames = body[0];
     let bod = body.slice(1);
+    /* ;; TODO: make new env, add argnames there.. and run body with that env. */
     let argsExpr = [argnames.map(x => ["", x].join(""))].join("");
     let bodExpr =
       bod.length === 1
@@ -347,7 +349,7 @@ function emit(expanded, env) {
     return ret;
   }
   /* ;; TODO: imports.  and exports can be anywhere! */
-  function emit_define_library(expanded, env) {
+  function emit_define_library_old(expanded, env) {
     if (!(expanded.length >= 3)) {
       throw new Error("define-library requires 3 or more items");
     }
@@ -366,7 +368,97 @@ function emit(expanded, env) {
       clause => (ret = [" ", ret, "", emit(clause, env), ";\n"].join(""))
     );
     exportsbody.map(
-      ex => (ret = [" ", ret, "exports.", ex, " = ", ex, ";\n"].join(""))
+      ex =>
+        (ret = [
+          " ",
+          ret,
+          "exports.",
+          emit(ex, env),
+          " = ",
+          emit(ex, env),
+          ";\n"
+        ].join(""))
+    );
+    return ret;
+  }
+  function emit_define_library(expanded, env) {
+    if (!(expanded.length >= 2)) {
+      throw new Error("define-library requires 2 or more items");
+    }
+    let body = expanded.slice(1);
+    let name = body[0];
+    /* ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future. */
+    let libbody = body.slice(1);
+    let ret = ["// LIBRARY: ", name.join("-"), "\n"].join("");
+    let body_exprs = [];
+    let import_exprs = [];
+    let export_exprs = [];
+    libbody.map(toplevel => {
+      let head = toplevel[0];
+      return (() => {
+        switch (head) {
+          case "export":
+            return (export_exprs = [...export_exprs, ...toplevel.slice(1)]);
+          case "import":
+            return (import_exprs = [...import_exprs, ...toplevel.slice(1)]);
+          default:
+            return (body_exprs = [...body_exprs, ...[toplevel]]);
+        }
+      })();
+    });
+    import_exprs.map(ex => {
+      let import_style = ex[0];
+      let import_name = ex.slice(1)[0];
+      let import_values = ex.slice(1).slice(1);
+      return (() => {
+        switch (import_style) {
+          case "only":
+            let vals = import_values.map(v => {
+              new_var(env, v, true);
+              return emit_identifier(v, env);
+            });
+            let vals_joined = vals.join(",");
+            return (ret = [
+              " ",
+              ret,
+              "const { ",
+              vals_joined,
+              " } = require('",
+              import_name.join("-"),
+              "');\n"
+            ].join(""));
+          case "prefix":
+            throw new Error("prefix not yet supported in include");
+            return (ret = [
+              " ",
+              ret,
+              "/* const ",
+              emit_identifier(import_values, env),
+              " = require('",
+              import_name.join("-"),
+              "')*/ \n"
+            ].join(""));
+          default:
+            /* ; TODO: BUG: nil shouldn't be required here but oh well */
+            throw new Error("only or prefix expected in include statement");
+            return null;
+        }
+      })();
+    });
+    body_exprs.map(
+      clause => (ret = [" ", ret, "", emit(clause, env), ";\n"].join(""))
+    );
+    export_exprs.map(
+      ex =>
+        (ret = [
+          " ",
+          ret,
+          "exports.",
+          emit(ex, env),
+          " = ",
+          emit(ex, env),
+          ";\n"
+        ].join(""))
     );
     return ret;
   }
@@ -440,6 +532,16 @@ function emit(expanded, env) {
     let ret = [emit(name, env), " = ", emit(val, env)].join("");
     return ret;
   }
+  /* ;; quoted. */
+  function emit_quote(expanded, env) {
+    if (!(expanded.length === 2)) {
+      throw new Error("emit-quote requires 2 items");
+    }
+    let val = expanded.slice(1)[0];
+    let new_env = make_environment(env);
+    new_var(new_env, val, true);
+    return emit_identifier(val, new_env);
+  }
   /* ;; ?? */
   function emit_list(expanded, env) {
     return (() => {
@@ -475,6 +577,8 @@ function emit(expanded, env) {
         return emit_set(expanded, env);
       } else if (expanded[0] === "apply") {
         return emit_apply(expanded, env);
+      } else if (expanded[0] === "quote") {
+        return emit_quote(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
@@ -502,8 +606,8 @@ function emit(expanded, env) {
       ? "null"
       : ((ret = ["", expanded].join("").replace("-", "_")),
         (ret = ret.replace("-", "_")),
-        (ret = ret.replace("?", "_")),
-        (ret = ret.replace("!", "_")),
+        (ret = ret.replace("?", "P")),
+        (ret = ret.replace("!", "W")),
         ret);
   }
   function emit_regex(expanded, env) {
@@ -544,9 +648,6 @@ function emit(expanded, env) {
     ["", "(", x.map(e => ["", emit(e, env), "&&"].join("")), " true)", ""].join(
       ""
     )
-  );
-  prim("string-append", (x, env) =>
-    ["", "[", x.map(e => [emit(e, env)].join("")), "].join('')", ""].join("")
   );
   prim("list", (x, env) =>
     ["", "[", x.map(e => [emit(e, env)].join("")), "]", ""].join("")
@@ -598,6 +699,9 @@ function emit(expanded, env) {
     ["(", emit(x[0], env), "<=", emit(x[1], env), ")"].join("")
   );
   prim("not", (x, env) => ["", "!(", emit(x[0], env), ")"].join(""));
+  prim("string-append", (x, env) =>
+    ["", "[", x.map(e => [emit(e, env)].join("")), "].join('')", ""].join("")
+  );
   prim("string?", (x, env) =>
     ["", "(typeof ", emit(x[0], env), " === 'string')", ""].join("")
   );
@@ -633,6 +737,11 @@ function emit(expanded, env) {
       ")",
       ""
     ].join("")
+  );
+  /* ;; srfi 130 */
+  /* ;; (prim "string-join" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  (car x)) "].join('" (emit (car (cdr x)) env) " ')"   ""  ))) */
+  prim("string-join", (x, env) =>
+    ["", emit(x[0], env), ".join(", emit(x.slice(1)[0], env), " )", ""].join("")
   );
   prim("list?", (x, env) =>
     ["", "(", emit(x[0], env), " instanceof Array)", ""].join("")
@@ -732,45 +841,16 @@ function emit(expanded, env) {
       ""
     ].join("")
   );
-  prim("skim-make-environment", (x, env) =>
-    [
-      "",
-      "require('./skim-boot-environ').make_environment(",
-      emit(x[0], env),
-      ")",
-      ""
-    ].join("")
-  );
-  prim("skim-parse", (x, env) =>
-    ["", "require('./skim-boot-parser').parse(", emit(x[0], env), ")", ""].join(
+  prim("skim-exec", (x, env) =>
+    ["", "require('child_process').execSync(", emit(x[0], env), ")", ""].join(
       ""
     )
   );
-  prim("skim-emit", (x, env) =>
-    [
-      "",
-      "require('./skim-boot-emitter').emit(",
-      emit(x[0], env),
-      ",",
-      emit(x[1], env),
-      ")",
-      ""
-    ].join("")
-  );
-  prim("skim-compile", (x, env) =>
-    ["", "require('./skim-boot-cli').compile(", emit(x[0], env), ")", ""].join(
-      ""
-    )
-  );
-  prim("skim-compile-file", (x, env) =>
-    [
-      "",
-      "require('./skim-boot-cli').compile_file(",
-      emit(x[0], env),
-      ")",
-      ""
-    ].join("")
-  );
+  /* ; (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" ))) */
+  /* ; (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" ))) */
+  /* ; (prim "skim-emit" (lambda (x env) (string-append "" "require('./skim-boot-emitter').emit(" (emit (list-ref x 0) env) "," (emit (list-ref x 1) env) ")" "" ))) */
+  /* ; (prim "skim-compile" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile(" (emit (list-ref x 0) env) ")" "" ))) */
+  /* ; (prim "skim-compile-file" (lambda (x env) (string-append "" "require('./skim-boot-cli').compile_file(" (emit (list-ref x 0) env) ")" "" ))) */
   prim("skim-prettier", (x, env) =>
     [
       "",

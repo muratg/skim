@@ -1,4 +1,7 @@
 (() => {
+  let a = 1;
+  let b = 2;
+
   let make_counter = () =>
     (({ next }) => {
       return () =>
@@ -16,7 +19,8 @@
   count2();
   1;
   true;
-  (" LIST TBD.. just iterate, find symbols, mark with quote and rest just values");
-  new String("a");
-  return true;
+  1, 2, 3, hello;
+  a;
+  process.stdout.write("" + "Hello!");
+  return process.stdout.write("\n");
 })();
