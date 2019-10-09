@@ -48,10 +48,10 @@
       <div class="d-flex container ml-5" class="ml-5">
         <pre style="text-align: left">
 (define (factorial n)
-  (cond ((num< n 0) #f)
-    ((num<= n 1) 1)
-    (else (num* n
-                (factorial (num- n 1))))))
+  (cond ((< n 0) #f)
+    ((<= n 1) 1)
+    (else (* n
+                (factorial (- n 1))))))
         </pre>
 
         <pre style="text-align: left" class="ml-5">
