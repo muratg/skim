@@ -1,14 +1,41 @@
 // LIBRARY: skim-compiler-parser
 function parse(str) {
-  let _stream = "";
-  let _pos = 0;
-  let _need_input = false;
+  /* ;; NEW parser state */
+  function make_parser_state() {
+    let parser_state = {};
+    parser_state["stream"] = "";
+    parser_state["pos"] = 0;
+    parser_state["needs-input"] = false;
+    return parser_state;
+  }
+  function stream() {
+    return $PS["stream"];
+  }
+  function stream_setW(v) {
+    return ($PS["stream"] = v);
+  }
+  function pos() {
+    return $PS["pos"];
+  }
+  function pos_setW(v) {
+    return ($PS["pos"] = v);
+  }
+  function needs_input() {
+    return $PS["needs-input"];
+  }
+  function needs_input_setW(v) {
+    return ($PS["needs-input"] = v);
+  }
+  let $PS = make_parser_state();
   function peek() {
-    return _stream.length === _pos ? "" : _stream[_pos];
+    return stream().length === pos() ? "" : stream()[pos()];
   }
   function use() {
     let ret = peek();
-    return ret === "" ? ret : ((_pos = 1 + _pos), ret);
+    return ret === "" ? ret : (pos_setW(1 + pos()), ret);
+  }
+  function done_parsing() {
+    return peek() === "";
   }
   function until(rx) {
     return (() => {
@@ -25,7 +52,7 @@ function parse(str) {
   }
   function get_regex() {
     let ret = "";
-    let save_pos = _pos;
+    let save_pos = pos();
     let done = false;
     use();
     if (!peek() === '"') {
@@ -36,8 +63,6 @@ function parse(str) {
       ret = [ret, until(/^(\\|"|$)/)].join("");
       let next_char = peek();
       if (next_char === "") {
-        _pos = save_pos;
-        _need_input = true;
         done = true;
       }
       if (next_char === '"') {
@@ -57,15 +82,14 @@ function parse(str) {
   }
   function get_string() {
     let ret = "";
-    let save_pos = _pos;
+    let save_pos = pos();
     let done = false;
     use();
     function loop() {
       ret = [ret, until(/^(\\|"|$)/)].join("");
       let next_char = peek();
       if (next_char === "") {
-        _pos = save_pos;
-        _need_input = true;
+        pos_setW(save_pos);
         done = true;
       }
       if (next_char === '"') {
@@ -153,7 +177,7 @@ function parse(str) {
     return false;
   }
   function get_list() {
-    let save_pos = _pos;
+    let save_pos = pos();
     use();
     let ret = (() => {
       let expr = get_expr();
@@ -167,12 +191,12 @@ function parse(str) {
     })();
     peek() === ")"
       ? use()
-      : ((_pos = save_pos), (_need_input = true), (ret = []));
+      : (pos_setW(save_pos), needs_input_setW(true), (ret = []));
     return ret;
   }
   function get_expr() {
     let ret = "";
-    _need_input = false;
+    needs_input_setW(false);
     get_ws();
     let next_char = peek();
     (() => {
@@ -194,7 +218,8 @@ function parse(str) {
     get_ws();
     return ret;
   }
-  _stream = str;
+  stream_setW(str);
+  /* ;; if we start with #! it means a script (probably) */
   (() => {
     if (peek() === "#") {
       return until(/\n/);
@@ -202,10 +227,22 @@ function parse(str) {
       return true;
     }
   })();
-  let expr = get_expr();
-  if (_need_input) {
+  let exprs = [];
+  (() => {
+    let done = false;
+    let expr = get_expr();
+    while (!done) {
+      exprs = [...exprs, ...[expr]];
+      done = done_parsing();
+      expr = get_expr();
+    }
+    return exprs;
+  })();
+  /* ;; (define expr (get-expr)) */
+  /* ;; (define exprs (list expr (list "comment" "HAHA"))) */
+  if (needs_input()) {
     throw new Error("more input needed");
   }
-  return expr;
+  return exprs;
 }
 exports.parse = parse;

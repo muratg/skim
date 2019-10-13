@@ -348,26 +348,60 @@ function emit(expanded, env) {
     ].join("");
     return ret;
   }
-  /* ;; TODO: imports.  and exports can be anywhere! */
-  function emit_define_library_old(expanded, env) {
-    if (!(expanded.length >= 3)) {
-      throw new Error("define-library requires 3 or more items");
-    }
-    let body = expanded.slice(1);
-    let name = body[0];
-    let libbody = body.slice(1);
-    let exports = libbody[0];
-    let clauses = libbody.slice(1);
-    let exportshead = exports[0];
-    let exportsbody = exports.slice(1);
-    if (!exportshead === "export") {
-      throw new Error("export statement expected here");
-    }
-    let ret = ["// LIBRARY: ", name, "\n"].join("");
-    clauses.map(
+  function emit_import(expanded, env) {
+    let ret = "";
+    let ex = expanded.slice(1)[0];
+    let import_style = ex[0];
+    let import_name = ex.slice(1)[0];
+    let import_values = ex.slice(1).slice(1);
+    (() => {
+      switch (import_style) {
+        case "only":
+          let vals = import_values.map(v => {
+            new_var(env, v, true);
+            return emit_identifier(v, env);
+          });
+          let vals_joined = vals.join(",");
+          return (ret = [
+            " ",
+            ret,
+            "const { ",
+            vals_joined,
+            " } = require('",
+            import_name.join("-"),
+            "');\n"
+          ].join(""));
+        case "prefix":
+          throw new Error("prefix not yet supported in include");
+          return null;
+        default:
+          /* ; TODO: BUG: nil shouldn't be required here but oh well */
+          throw new Error("only or prefix expected in include statement");
+          return null;
+      }
+    })();
+    return ret;
+  }
+  function emit_toplevel(libbody, env) {
+    let ret = "";
+    let body_exprs = [];
+    /* ;(define import-exprs (list)) */
+    let export_exprs = [];
+    libbody.map(toplevel => {
+      let head = toplevel[0];
+      return (() => {
+        switch (head) {
+          case "export":
+            return (export_exprs = [...export_exprs, ...toplevel.slice(1)]);
+          default:
+            return (body_exprs = [...body_exprs, ...[toplevel]]);
+        }
+      })();
+    });
+    body_exprs.map(
       clause => (ret = [" ", ret, "", emit(clause, env), ";\n"].join(""))
     );
-    exportsbody.map(
+    export_exprs.map(
       ex =>
         (ret = [
           " ",
@@ -390,76 +424,7 @@ function emit(expanded, env) {
     /* ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future. */
     let libbody = body.slice(1);
     let ret = ["// LIBRARY: ", name.join("-"), "\n"].join("");
-    let body_exprs = [];
-    let import_exprs = [];
-    let export_exprs = [];
-    libbody.map(toplevel => {
-      let head = toplevel[0];
-      return (() => {
-        switch (head) {
-          case "export":
-            return (export_exprs = [...export_exprs, ...toplevel.slice(1)]);
-          case "import":
-            return (import_exprs = [...import_exprs, ...toplevel.slice(1)]);
-          default:
-            return (body_exprs = [...body_exprs, ...[toplevel]]);
-        }
-      })();
-    });
-    import_exprs.map(ex => {
-      let import_style = ex[0];
-      let import_name = ex.slice(1)[0];
-      let import_values = ex.slice(1).slice(1);
-      return (() => {
-        switch (import_style) {
-          case "only":
-            let vals = import_values.map(v => {
-              new_var(env, v, true);
-              return emit_identifier(v, env);
-            });
-            let vals_joined = vals.join(",");
-            return (ret = [
-              " ",
-              ret,
-              "const { ",
-              vals_joined,
-              " } = require('",
-              import_name.join("-"),
-              "');\n"
-            ].join(""));
-          case "prefix":
-            throw new Error("prefix not yet supported in include");
-            return (ret = [
-              " ",
-              ret,
-              "/* const ",
-              emit_identifier(import_values, env),
-              " = require('",
-              import_name.join("-"),
-              "')*/ \n"
-            ].join(""));
-          default:
-            /* ; TODO: BUG: nil shouldn't be required here but oh well */
-            throw new Error("only or prefix expected in include statement");
-            return null;
-        }
-      })();
-    });
-    body_exprs.map(
-      clause => (ret = [" ", ret, "", emit(clause, env), ";\n"].join(""))
-    );
-    export_exprs.map(
-      ex =>
-        (ret = [
-          " ",
-          ret,
-          "exports.",
-          emit(ex, env),
-          " = ",
-          emit(ex, env),
-          ";\n"
-        ].join(""))
-    );
+    ret = [" ", ret, emit_toplevel(libbody, env)].join("");
     return ret;
   }
   /* ;; apply */
@@ -515,8 +480,9 @@ function emit(expanded, env) {
     let ret = [...exps].join("");
     return ret;
   }
-  /* ;; there be issues */
-  function emit_begin(expanded, env) {
+  /* ;; This is for "expression" form of begin.. */
+  /* ;; "statement" form will be "expanded" */
+  function emit_begin_expression(expanded, env) {
     let args = expanded.slice(1);
     let exps = args.map(x => emit(x, env));
     let ret = ["(", exps, ")"].join("");
@@ -538,6 +504,16 @@ function emit(expanded, env) {
       throw new Error("emit-quote requires 2 items");
     }
     let val = expanded.slice(1)[0];
+    (() => {
+      if (typeof val === "string") {
+        return process.stdout.write("" + "YTA");
+      } else if (val instanceof String) {
+        return process.stdout.write("" + "STRING");
+      } else {
+        process.stdout.write("" + val);
+        return process.stdout.write("" + "!!!!");
+      }
+    })();
     let new_env = make_environment(env);
     new_var(new_env, val, true);
     return emit_identifier(val, new_env);
@@ -572,13 +548,15 @@ function emit(expanded, env) {
       } else if (expanded[0] === "define-library") {
         return emit_define_library(expanded, env);
       } else if (expanded[0] === "begin") {
-        return emit_begin(expanded, env);
+        return emit_begin_expression(expanded, env);
       } else if (expanded[0] === "set!") {
         return emit_set(expanded, env);
       } else if (expanded[0] === "apply") {
         return emit_apply(expanded, env);
       } else if (expanded[0] === "quote") {
         return emit_quote(expanded, env);
+      } else if (expanded[0] === "import") {
+        return emit_import(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
@@ -614,7 +592,7 @@ function emit(expanded, env) {
     return expanded;
   }
   function emit_expr(expanded, env) {
-    /* ;;(print (string-append "REGEX????????????????????? "  expanded "???")) */
+    /* ;(print (string-append "REGEX????????????????????? "  expanded "???")) */
     return (() => {
       if (typeof expanded === "number") {
         return ["", expanded].join("");
@@ -629,7 +607,7 @@ function emit(expanded, env) {
       } else if (expanded instanceof Array) {
         return emit_list(expanded, env);
       } else {
-        throw new Error("mm?");
+        throw new Error(["mm?", expanded].join(""));
         return null;
       }
     })();
@@ -660,6 +638,9 @@ function emit(expanded, env) {
   );
   prim("boolean?", (x, env) =>
     ["", "(typeof ", emit(x[0], env), " === 'boolean')", ""].join("")
+  );
+  prim("procedure?", (x, env) =>
+    ["", "(typeof ", emit(x[0], env), " === 'function)", ""].join("")
   );
   prim("regex?", (x, env) =>
     ["", "(", emit(x[0], env), " instanceof RegExp)", ""].join("")

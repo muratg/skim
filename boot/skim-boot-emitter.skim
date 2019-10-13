@@ -290,28 +290,49 @@
       (set! ret (string-append "function " (emit-identifier name env) "(" argsExpr ")" retclause ))
       ret)
 
-    ;; TODO: imports.  and exports can be anywhere!
-    (define (emit-define-library_old expanded env)
-      (unless (>= (length expanded) 3)
-        (raise "define-library requires 3 or more items"))
-      (define body (cdr expanded))
-      (define name (car body))
-      (define libbody (cdr body))
-      (define exports (car libbody))
-      (define clauses (cdr libbody))
-      (define exportshead (car exports))
-      (define exportsbody (cdr exports))
-      (unless (string=? exportshead "export")
-        (raise "export statement expected here"))
-      (define ret (string-append "// LIBRARY: " name "\n"))
-      (map (lambda
-             (clause)
+    (define (emit-import expanded env)
+      (define ret "")
+      (define ex (car (cdr expanded)))
+      (define import-style (car ex))
+      (define import-name (car (cdr ex)))
+      (define import-values (cdr (cdr ex)))
+      (case import-style
+        (("only")
+         (define vals (map (lambda (v) (new-var env v #t) (emit-identifier v env)) import-values))
+         (define vals-joined (string-join vals ","))
+         (set! ret
+           (string-append " " ret "const { " vals-joined " } = require('" (string-join import-name "-") "');\n" )))
+        (("prefix")
+         (raise "prefix not yet supported in include")
+         nil)
+        (else
+          ; TODO: BUG: nil shouldn't be required here but oh well
+          (raise "only or prefix expected in include statement") nil))
+
+      ret)
+
+
+    (define (emit-toplevel libbody env)
+      (define ret "")
+      (define body-exprs (list))
+      ;(define import-exprs (list))
+      (define export-exprs (list))
+
+      (map
+        (lambda (toplevel)
+          (define head (car toplevel))
+          (case head
+            (("export") (set! export-exprs (append export-exprs (cdr toplevel))))
+
+            (else (set! body-exprs  (append body-exprs  (list toplevel))))
+            )) libbody)
+
+      (map (lambda (clause)
              (set! ret (string-append " " ret "" (emit clause env) ";\n")) )
-           clauses)
-      (map (lambda
-             (ex)
+           body-exprs)
+      (map (lambda (ex)
              (set! ret (string-append " " ret "exports." (emit ex env) " = " (emit ex env) ";\n" )))
-           exportsbody)
+           export-exprs)
       ret)
 
     (define (emit-define-library expanded env)
@@ -325,43 +346,11 @@
 
       (define ret (string-append "// LIBRARY: "  (string-join name "-") "\n"))
 
-      (define body-exprs (list))
-      (define import-exprs (list))
-      (define export-exprs (list))
+      (set! ret (string-append " " ret (emit-toplevel libbody env)))
 
-      (map
-        (lambda (toplevel)
-          (define head (car toplevel))
-          (case head
-            (("export") (set! export-exprs (append export-exprs (cdr toplevel))))
-            (("import") (set! import-exprs  (append import-exprs (cdr toplevel))))
-            (else (set! body-exprs  (append body-exprs  (list toplevel))))
-            )) libbody)
-      (map (lambda (ex)
-             (define import-style (car ex))
-             (define import-name (car (cdr ex)))
-             (define import-values (cdr (cdr ex)))
-             (case import-style
-               (("only")
-                (define vals (map (lambda (v) (new-var env v #t) (emit-identifier v env)) import-values))
-                (define vals-joined (string-join vals ","))
-                (set! ret
-                  (string-append " " ret "const { " vals-joined " } = require('" (string-join import-name "-") "');\n" )))
-               (("prefix")
-                (raise "prefix not yet supported in include")
-                (set! ret
-                  (string-append " " ret "/* const " (emit-identifier import-values env) " = require('" (string-join import-name "-") "')*/ \n")))
-               (else
-                 ; TODO: BUG: nil shouldn't be required here but oh well
-                 (raise "only or prefix expected in include statement") nil))
-             ) import-exprs)
-      (map (lambda (clause)
-             (set! ret (string-append " " ret "" (emit clause env) ";\n")) )
-           body-exprs)
-      (map (lambda (ex)
-             (set! ret (string-append " " ret "exports." (emit ex env) " = " (emit ex env) ";\n" )))
-           export-exprs)
       ret)
+
+
     ;; apply
     (define (emit-apply expanded env)
       (unless (= (length expanded) 3)
@@ -403,8 +392,9 @@
       (define ret (apply string-append exps))
       ret)
 
-    ;; there be issues
-    (define (emit-begin expanded env)
+    ;; This is for "expression" form of begin..
+    ;; "statement" form will be "expanded"
+    (define (emit-begin-expression expanded env)
       (define args (cdr expanded))
       (define exps (map (lambda (x) (emit x env)) args))
       (define ret (string-append "(" exps ")"))
@@ -424,6 +414,9 @@
       (unless (= (length expanded) 2)
         (raise "emit-quote requires 2 items"))
       (define val (car (cdr expanded)))
+      (cond ((string? val) (display "YTA"))
+            ((String? val) (display "STRING"))
+            (else (display val) (display "!!!!")))
       (define new-env (make-environment env))
       (new-var new-env val #t)
       (emit-identifier val new-env))
@@ -443,10 +436,11 @@
             ((string=? (list-ref expanded 0) "lambda") (emit-lambda expanded env))
             ((string=? (list-ref expanded 0) "define") (emit-define expanded env))
             ((string=? (list-ref expanded 0) "define-library") (emit-define-library expanded env))
-            ((string=? (list-ref expanded 0) "begin") (emit-begin expanded env))
+            ((string=? (list-ref expanded 0) "begin") (emit-begin-expression expanded env))
             ((string=? (list-ref expanded 0) "set!") (emit-set expanded env))
             ((string=? (list-ref expanded 0) "apply") (emit-apply expanded env))
             ((string=? (list-ref expanded 0) "quote") (emit-quote expanded env))
+            ((string=? (list-ref expanded 0) "import") (emit-import expanded env))
             ((string=? (list-ref expanded 0) "comment") (string-append "/* " (cdr expanded )" */\n"))
             (else
               (define name (list-ref expanded 0))
@@ -477,7 +471,7 @@
     (define (emit-regex expanded env) expanded)
 
     (define (emit-expr expanded env)
-      ;;(print (string-append "REGEX????????????????????? "  expanded "???"))
+      ;(print (string-append "REGEX????????????????????? "  expanded "???"))
       (cond
         ((number? expanded) (string-append "" expanded))
         ((boolean? expanded) (string-append "" expanded))
@@ -485,7 +479,7 @@
         ((string? expanded)  (emit-identifier expanded env))
         ((regex? expanded)   (emit-regex expanded env))
         ((list? expanded)  (emit-list expanded env))
-        (else (raise "mm?") nil)))
+        (else (raise (string-append "mm?" expanded)) nil)))
 
     ;; cleanup opportunities here
     (prim "or" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "||")) x)  " false)"           ""  )))
@@ -497,6 +491,7 @@
     (prim "zero?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) " === 0 "  "" )))
     (prim "number?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'number')" "" )))
     (prim "boolean?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'boolean')" "" )))
+    (prim "procedure?" (lambda (x env) (string-append "" "(typeof " (emit (list-ref x 0) env) " === 'function)" "" )))
     (prim "regex?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof RegExp)" "" )))
     (prim "nan?" (lambda (x env) (string-append "" "isNaN(" (emit (list-ref x 0) env) ")"  "" )))
     (prim "string->number" (lambda (x env) (string-append "" "parseFloat(" (emit (list-ref x 0) env) ")" "" )))

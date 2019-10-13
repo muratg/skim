@@ -349,43 +349,52 @@ function emit(expanded, env) {
     return ret;
   }
   function emit_import(expanded, env) {
-    let ret = "";
-    let ex = expanded.slice(1)[0];
+    let ret = '';
     let import_style = ex[0];
-    let import_name = ex.slice(1)[0];
-    let import_values = ex.slice(1).slice(1);
-    (() => {
-      switch (import_style) {
-        case "only":
-          let vals = import_values.map(v => {
-            new_var(env, v, true);
-            return emit_identifier(v, env);
-          });
-          let vals_joined = vals.join(",");
-          return (ret = [
-            " ",
-            ret,
-            "const { ",
-            vals_joined,
-            " } = require('",
-            import_name.join("-"),
-            "');\n"
-          ].join(""));
-        case "prefix":
-          throw new Error("prefix not yet supported in include");
-          return null;
-        default:
-          /* ; TODO: BUG: nil shouldn't be required here but oh well */
-          throw new Error("only or prefix expected in include statement");
-          return null;
-      }
-    })();
+      let import_name = ex.slice(1)[0];
+      let import_values = ex.slice(1).slice(1);
+      return (() => {
+        switch (import_style) {
+          case "only":
+            let vals = import_values.map(v => {
+              new_var(env, v, true);
+              return emit_identifier(v, env);
+            });
+            let vals_joined = vals.join(",");
+            return (ret = [
+              " ",
+              ret,
+              "const { ",
+              vals_joined,
+              " } = require('",
+              import_name.join("-"),
+              "');\n"
+            ].join(""));
+          case "prefix":
+            throw new Error("prefix not yet supported in include");
+            return (ret = [
+              " ",
+              ret,
+              "/* const ",
+              emit_identifier(import_values, env),
+              " = require('",
+              import_name.join("-"),
+              "')*/ \n"
+            ].join(""));
+          default:
+            /* ; TODO: BUG: nil shouldn't be required here but oh well */
+            throw new Error("only or prefix expected in include statement");
+            return null;
+        }
+      })();
+
+
     return ret;
   }
   function emit_toplevel(libbody, env) {
     let ret = "";
     let body_exprs = [];
-    /* ;(define import-exprs (list)) */
+    let import_exprs = [];
     let export_exprs = [];
     libbody.map(toplevel => {
       let head = toplevel[0];
@@ -393,8 +402,49 @@ function emit(expanded, env) {
         switch (head) {
           case "export":
             return (export_exprs = [...export_exprs, ...toplevel.slice(1)]);
+          case "import":
+            return (import_exprs = [...import_exprs, ...toplevel.slice(1)]);
           default:
             return (body_exprs = [...body_exprs, ...[toplevel]]);
+        }
+      })();
+    });
+    import_exprs.map(ex => {
+      let import_style = ex[0];
+      let import_name = ex.slice(1)[0];
+      let import_values = ex.slice(1).slice(1);
+      return (() => {
+        switch (import_style) {
+          case "only":
+            let vals = import_values.map(v => {
+              new_var(env, v, true);
+              return emit_identifier(v, env);
+            });
+            let vals_joined = vals.join(",");
+            return (ret = [
+              " ",
+              ret,
+              "const { ",
+              vals_joined,
+              " } = require('",
+              import_name.join("-"),
+              "');\n"
+            ].join(""));
+          case "prefix":
+            throw new Error("prefix not yet supported in include");
+            return (ret = [
+              " ",
+              ret,
+              "/* const ",
+              emit_identifier(import_values, env),
+              " = require('",
+              import_name.join("-"),
+              "')*/ \n"
+            ].join(""));
+          default:
+            /* ; TODO: BUG: nil shouldn't be required here but oh well */
+            throw new Error("only or prefix expected in include statement");
+            return null;
         }
       })();
     });
@@ -504,16 +554,6 @@ function emit(expanded, env) {
       throw new Error("emit-quote requires 2 items");
     }
     let val = expanded.slice(1)[0];
-    (() => {
-      if (typeof val === "string") {
-        return process.stdout.write("" + "YTA");
-      } else if (val instanceof String) {
-        return process.stdout.write("" + "STRING");
-      } else {
-        process.stdout.write("" + val);
-        return process.stdout.write("" + "!!!!");
-      }
-    })();
     let new_env = make_environment(env);
     new_var(new_env, val, true);
     return emit_identifier(val, new_env);
@@ -555,8 +595,6 @@ function emit(expanded, env) {
         return emit_apply(expanded, env);
       } else if (expanded[0] === "quote") {
         return emit_quote(expanded, env);
-      } else if (expanded[0] === "import") {
-        return emit_import(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
