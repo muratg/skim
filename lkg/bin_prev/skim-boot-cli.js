@@ -1,14 +1,11 @@
+// LIBRARY: skim-boot-cli
 const { emit } = require("./skim-boot-emitter");
-
 const { parse } = require("./skim-boot-parser");
-
 const { make_environment } = require("./skim-boot-environ");
-
 function print(x) {
   process.stdout.write("" + x);
   return process.stdout.write("\n");
 }
-
 function compile_string(source) {
   let global_env = make_environment(null);
   let exprs = parse(source);
@@ -22,7 +19,6 @@ function compile_string(source) {
   });
   return outputs.join("\n");
 }
-
 function compile_file(name, save_output) {
   let source = require("fs").readFileSync(name, "utf8");
   let output = compile_string(source);
@@ -34,9 +30,7 @@ function compile_file(name, save_output) {
   }
   return output;
 }
-
 let output = "";
-
 function skim_help() {
   let help = "";
   help = [help, "SkimJS", "\n"].join("");
@@ -45,7 +39,6 @@ function skim_help() {
   help = [help, "skim -c filename: compile file", "\n"].join("");
   return process.stdout.write("" + help);
 }
-
 function start() {
   let args = process.argv.slice(1);
   /* ; (display "*** command-line: " ) (print args) */
@@ -70,5 +63,5 @@ function start() {
     }
   })();
 }
-
 start();
+exports.compile_string = compile_string;

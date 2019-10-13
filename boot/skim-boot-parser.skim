@@ -139,9 +139,14 @@
           #f))
     ret)
 
-  (define (get-quoted) (raise "NotImplemented") "")
-
   (define (get-expr) "" #f)
+
+  (define (get-quote quotestyle)
+    (use) ;; get rid of '
+
+    (define ret (list quotestyle (get-expr)))
+    (display ret) (newline)
+    ret)
 
   (define (get-list)
     (define save-pos (pos))
@@ -170,6 +175,8 @@
     (case next-char
       ((";") (set! ret (get-comment)))
       (("\"") (set! ret (get-string)))
+      (("'") (set! ret (get-quote "quote")))
+      (("`") (set! ret (get-quote "quasiquote")))
       (("@") (set! ret (get-regex)))
       (("#") (set! ret (get-hashval)))
       (("(") (set! ret (get-list)))

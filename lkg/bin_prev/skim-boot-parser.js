@@ -168,13 +168,17 @@ function parse(str) {
     }
     return ret;
   }
-  function get_quoted() {
-    throw new Error("NotImplemented");
-    return "";
-  }
   function get_expr() {
     "";
     return false;
+  }
+  function get_quote(quotestyle) {
+    use();
+    /* ;; get rid of ' */
+    let ret = [quotestyle, get_expr()];
+    process.stdout.write("" + ret);
+    process.stdout.write("\n");
+    return ret;
   }
   function get_list() {
     let save_pos = pos();
@@ -205,6 +209,10 @@ function parse(str) {
           return (ret = get_comment());
         case '"':
           return (ret = get_string());
+        case "'":
+          return (ret = get_quote("quote"));
+        case "`":
+          return (ret = get_quote("quasiquote"));
         case "@":
           return (ret = get_regex());
         case "#":

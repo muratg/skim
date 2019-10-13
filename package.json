@@ -27,10 +27,13 @@
   "dependencies": {
     "prettier": "^1.18.2"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "jest": "^24.9.0"
+  },
   "scripts": {
     "dev-install-skim": "sudo npm i -g",
     "dev-uninstall-skim": "sudo npm uninstall -g",
-    "PUBLISH-NPM": "npm publish"
+    "PUBLISH-NPM": "npm publish",
+    "test": "jest"
   }
 }

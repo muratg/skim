@@ -498,28 +498,83 @@ function emit(expanded, env) {
     let ret = [emit(name, env), " = ", emit(val, env)].join("");
     return ret;
   }
-  /* ;; quoted. */
-  function emit_quote(expanded, env) {
+  /* ;; quote, quasiquote */
+  function emit_quotes(expanded, env) {
     if (!(expanded.length === 2)) {
+      process.stdout.write("" + "emit-quote:");
+      process.stdout.write("" + expanded);
+      process.stdout.write("\n");
       throw new Error("emit-quote requires 2 items");
     }
+    let quote_style = expanded[0];
+    let qq = quote_style === "quasiquote" ? true : false;
     let val = expanded.slice(1)[0];
+    let ret = "/*XD*/";
     (() => {
       if (typeof val === "string") {
-        return process.stdout.write("" + "YTA");
-      } else if (val instanceof String) {
-        return process.stdout.write("" + "STRING");
+        /* ; (display "id") (display val) (newline) */
+        let new_env = make_environment(env);
+        new_var(new_env, val, true);
+        /* ;; (set! set  (string-append " "  ret " " (emit-identifier val new-env)))) */
+        return (ret = [
+          " ",
+          ret,
+          " Symbol.for('",
+          emit_identifier(val, new_env),
+          "').toString()"
+        ].join(""));
+      } else if (val instanceof Array) {
+        /* ; (display "list") */
+        /* ;;(define lst (list)) */
+        ret = [" ", ret, "[ "].join("");
+        val.map(
+          v =>
+            (ret = [" ", ret, " ", emit([...["quote"], ...[v]], env), ","].join(
+              ""
+            ))
+        );
+        return (ret = [" ", ret, " ]"].join(""));
       } else {
-        process.stdout.write("" + val);
-        return process.stdout.write("" + "!!!!");
+        /* ; (display val) (display "!!!!") */
+        return (ret = [" ", ret, " /*QQ*/ ", emit(val, env)].join(""));
       }
     })();
-    let new_env = make_environment(env);
-    new_var(new_env, val, true);
-    return emit_identifier(val, new_env);
+    /* ; (display "RET") (display ret) (display ";") (newline) */
+    return ret;
+  }
+  function emit_test_group(expanded, env) {
+    if (!(expanded.length >= 3)) {
+      throw new Error(
+        "test-group requires 3+ values: test-group, name, ...body"
+      );
+    }
+    let ret = "";
+    let bod = expanded.slice(1);
+    let name = bod[0];
+    let exprs = bod.slice(1);
+    ret = [ret, "test(", emit(name, env), ",()=>{ "].join("");
+    exprs.map(e => (ret = [ret, " ", emit(e, env)].join("")));
+    ret = [ret, " });  "].join("");
+    return ret;
+  }
+  function emit_test(expanded, env) {
+    if (!(expanded.length === 3)) {
+      throw new Error("test requires 3 values: test, expected, expr ");
+    }
+    let expected = expanded[1];
+    let expr = expanded[2];
+    let ret = [
+      "expect(",
+      emit(expr, env),
+      ").toEqual(",
+      emit(expected, env),
+      ");\n"
+    ].join("");
+    return ret;
   }
   /* ;; ?? */
   function emit_list(expanded, env) {
+    /* ; (display expanded) (display "------------") (newline) */
     return (() => {
       if (expanded.length === 0) {
         return "[]";
@@ -554,9 +609,15 @@ function emit(expanded, env) {
       } else if (expanded[0] === "apply") {
         return emit_apply(expanded, env);
       } else if (expanded[0] === "quote") {
-        return emit_quote(expanded, env);
+        return emit_quotes(expanded, env);
+      } else if (expanded[0] === "quasiquote") {
+        return emit_quotes(expanded, env);
       } else if (expanded[0] === "import") {
         return emit_import(expanded, env);
+      } else if (expanded[0] === "test-group") {
+        return emit_test_group(expanded, env);
+      } else if (expanded[0] === "test") {
+        return emit_test(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
@@ -570,8 +631,7 @@ function emit(expanded, env) {
             /* ; (print (string-append "NOT proc call --> " name " ... " val " ...___ " expanded)) */
             /* ;; TODO: this should work: */
             ["", name, ""].join("");
-            /* ;; (string-append "" (emit (car expanded) env)) */
-            return /* ;; (string-append "" (emit (car expanded) env) "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa" (emit (cdr expanded) env)")") */;
+            return /* ;; (string-append "" (emit (car expanded) env)) */;
           }
         })();
       }
@@ -626,9 +686,6 @@ function emit(expanded, env) {
     ["", "(", x.map(e => ["", emit(e, env), "&&"].join("")), " true)", ""].join(
       ""
     )
-  );
-  prim("list", (x, env) =>
-    ["", "[", x.map(e => [emit(e, env)].join("")), "]", ""].join("")
   );
   prim("add1", (x, env) => ["", emit(x[0], env), " + 1 ", ""].join(""));
   prim("sub1", (x, env) => ["", emit(x[0], env), " - 1 ", ""].join(""));
@@ -724,6 +781,9 @@ function emit(expanded, env) {
   prim("string-join", (x, env) =>
     ["", emit(x[0], env), ".join(", emit(x.slice(1)[0], env), " )", ""].join("")
   );
+  prim("list", (x, env) =>
+    ["", "[", x.map(e => [emit(e, env)].join("")), "]", ""].join("")
+  );
   prim("list?", (x, env) =>
     ["", "(", emit(x[0], env), " instanceof Array)", ""].join("")
   );
@@ -770,9 +830,11 @@ function emit(expanded, env) {
     ["", "throw new Error(", emit(x[0], env), ")", ""].join("")
   );
   prim("display", (x, env) =>
-    ["", "process.stdout.write('' + ", emit(x[0], env), ")", ""].join("")
+    ["", "process.stdout.write('' + ", emit(x[0], env), ");\n", ""].join("")
   );
-  prim("newline", (x, env) => ["", "process.stdout.write('\\n')", ""].join(""));
+  prim("newline", (x, env) =>
+    ["", "process.stdout.write('\\n');\n", ""].join("")
+  );
   /* ;; checks for JavaScript null and undefined (via "==") */
   prim("nil?", (x, env) => ["", emit(x[0], env), "== null", ""].join(""));
   prim("hash-table-set!", (x, env) =>
@@ -806,6 +868,7 @@ function emit(expanded, env) {
   prim("make-String", (x, env) =>
     ["", "new String(", emit(x[0], env), ")", ""].join("")
   );
+  /* ;; file io */
   prim("skim-load", (x, env) =>
     ["", "require('fs').readFileSync(", emit(x[0], env), ", 'utf8')", ""].join(
       ""

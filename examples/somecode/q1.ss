@@ -1,1 +1,1 @@
-(quote x)
+(define a (quote x))

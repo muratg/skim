@@ -409,20 +409,61 @@
       (define ret (string-append (emit name env) " = " (emit val env)))
       ret)
 
-    ;; quoted.
-    (define (emit-quote expanded env)
+    ;; quote, quasiquote
+  (define (emit-quotes expanded env)
       (unless (= (length expanded) 2)
+        (display "emit-quote:")
+        (display expanded)
+        (newline)
         (raise "emit-quote requires 2 items"))
+      (define quote-style (car expanded))
+      (define qq (if (string=? quote-style "quasiquote") #t #f))
       (define val (car (cdr expanded)))
-      (cond ((string? val) (display "YTA"))
-            ((String? val) (display "STRING"))
-            (else (display val) (display "!!!!")))
-      (define new-env (make-environment env))
-      (new-var new-env val #t)
-      (emit-identifier val new-env))
+      (define ret "")
+      (cond ((string? val)
+             ; (display "id") (display val) (newline)
+             (define new-env (make-environment env))
+             (new-var new-env val #t)
+             ;; (set! set  (string-append " "  ret " " (emit-identifier val new-env))))
+             (set! ret  (string-append " "  ret " Symbol.for('" (emit-identifier val new-env) "').toString()" )))
+            ((list? val)
+              ; (display "list")
+              ;;(define lst (list))
+              (set! ret (string-append " " ret "[ "))
+              (map
+                (lambda (v)
+                  (set! ret (string-append " " ret " " (emit (append (list "quote") (list v)) env) "," )))
+                val)
+              (set! ret (string-append " " ret " ]")))
+            (else
+              ; (display val) (display "!!!!")
+              (set! ret (string-append " " ret "" (emit val env)))
+              ))
+      ; (display "RET") (display ret) (display ";") (newline)
+      ret)
 
+    (define (emit-test-group expanded env)
+      (unless (>= (length expanded) 3) (raise "test-group requires 3+ values: test-group, name, ...body"))
+      (define ret "")
+      (define bod (cdr expanded))
+      (define name (car bod))
+      (define exprs (cdr bod))
+      (set! ret (string-append ret "test(" (emit name env) ",()=>{ " ))
+      (map
+        (lambda (e)
+          (set! ret (string-append ret " " (emit e env)))
+         ) exprs)
+      (set! ret (string-append ret " });  "))
+      ret)
+    (define (emit-test expanded env)
+      (unless (= (length expanded) 3) (raise "test requires 3 values: test, expected, expr "))
+      (define expected (list-ref expanded 1))
+      (define expr (list-ref expanded 2))
+      (define ret (string-append "expect(" (emit expr env) ").toEqual(" (emit expected env ) ");\n"))
+      ret)
     ;; ??
     (define (emit-list expanded env)
+      ; (display expanded) (display "------------") (newline)
       (cond ((null? expanded) "[]")
             ((is-prim  (list-ref expanded 0)) (emit-primcall expanded env))
             ((string=? (list-ref expanded 0) "let") (emit-let expanded env))
@@ -439,8 +480,11 @@
             ((string=? (list-ref expanded 0) "begin") (emit-begin-expression expanded env))
             ((string=? (list-ref expanded 0) "set!") (emit-set expanded env))
             ((string=? (list-ref expanded 0) "apply") (emit-apply expanded env))
-            ((string=? (list-ref expanded 0) "quote") (emit-quote expanded env))
+            ((string=? (list-ref expanded 0) "quote") (emit-quotes expanded env))
+            ((string=? (list-ref expanded 0) "quasiquote") (emit-quotes expanded env))
             ((string=? (list-ref expanded 0) "import") (emit-import expanded env))
+            ((string=? (list-ref expanded 0) "test-group") (emit-test-group expanded env))
+            ((string=? (list-ref expanded 0) "test") (emit-test expanded env))
             ((string=? (list-ref expanded 0) "comment") (string-append "/* " (cdr expanded )" */\n"))
             (else
               (define name (list-ref expanded 0))
@@ -453,7 +497,6 @@
                       ;; TODO: this should work:
                       (string-append "" name "")
                       ;; (string-append "" (emit (car expanded) env))
-                      ;; (string-append "" (emit (car expanded) env) "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa" (emit (cdr expanded) env)")")
                       )))))
 
     ;; TODO; check identifier better
@@ -484,7 +527,6 @@
     ;; cleanup opportunities here
     (prim "or" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "||")) x)  " false)"           ""  )))
     (prim "and" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "&&")) x)  " true)"           ""  )))
-    (prim "list" (lambda (x env) (string-append ""          "["  (map (lambda (e) (string-append (emit e env)))  x) "]"            ""  )))
 
     (prim "add1" (lambda (x env) (string-append ""  (emit (list-ref x 0) env)  " + 1 "  "" )))
     (prim "sub1" (lambda (x env) (string-append ""  (emit (list-ref x 0) env)  " - 1 " "" )))
@@ -519,7 +561,7 @@
     ;; (prim "string-join" (lambda (x env) (string-append "" "["  (map (lambda (e) (string-append (emit e env)))  (car x)) "].join('" (emit (car (cdr x)) env) " ')"   ""  )))
     (prim "string-join" (lambda (x env) (string-append "" (emit (car x) env)  ".join(" (emit (car (cdr x)) env) " )"   ""  )))
 
-
+    (prim "list" (lambda (x env) (string-append ""          "["  (map (lambda (e) (string-append (emit e env)))  x) "]"            ""  )))
     (prim "list?" (lambda (x env) (string-append "" "(" (emit (list-ref x 0) env) " instanceof Array)"  "" )))
     (prim "null?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) ".length === 0 " "" )))
     (prim "append" (lambda (x env) (string-append "" "[..." (emit (list-ref x 0) env) ", ..." (emit (list-ref x 1) env) "]" "" )))
@@ -538,8 +580,8 @@
     (prim "hash-table-ref" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "[" (emit (list-ref x 1) env) "]" "" )))
 
     (prim "raise" (lambda (x env) (string-append "" "throw new Error(" (emit (list-ref x 0) env) ")" "" )))
-    (prim "display" (lambda (x env) (string-append "" "process.stdout.write('' + " (emit (list-ref x 0) env) ")" "" )))
-    (prim "newline" (lambda (x env) (string-append "" "process.stdout.write('\\n')" "" )))
+    (prim "display" (lambda (x env) (string-append "" "process.stdout.write('' + " (emit (list-ref x 0) env) ");\n" "" )))
+    (prim "newline" (lambda (x env) (string-append "" "process.stdout.write('\\n');\n" "" )))
 
     ;; checks for JavaScript null and undefined (via "==")
     (prim "nil?" (lambda (x env) (string-append ""  (emit (list-ref x 0) env) "== null"  "" )))
@@ -550,7 +592,7 @@
     (prim "make-RegExp" (lambda (x env) (string-append "" "new RegExp(" (emit (list-ref x 0) env) ")" "" )))
     (prim "make-String" (lambda (x env) (string-append "" "new String(" (emit (list-ref x 0) env) ")" "" )))
 
-
+    ;; file io
     (prim "skim-load" (lambda (x env) (string-append "" "require('fs').readFileSync(" (emit (list-ref x 0) env) ", 'utf8')" "" )))
     (prim "skim-save" (lambda (x env) (string-append "" "require('fs').writeFileSync(" (emit (list-ref x 0) env) ","  (emit (list-ref x 1) env) ")" "" )))
     (prim "skim-exec" (lambda (x env) (string-append "" "require('child_process').execSync(" (emit (list-ref x 0) env) ")" "" )))
@@ -565,5 +607,6 @@
     ; (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`" (emit (list-ref x 0) env) "`)" "" )))
     (prim "skim-js-eval" (lambda (x env) (string-append "" "eval(`${" x "}`)" "" )))
     (prim "command-line" (lambda (x env) "process.argv.slice(1)"))
+
 
     (emit-expr expanded env)))
