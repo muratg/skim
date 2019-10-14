@@ -1,5 +1,5 @@
 (define-library
-  (skim compiler env)
+  (skim boot environ)
   (export make_environment)
 
   (define (make_environment parentenv)

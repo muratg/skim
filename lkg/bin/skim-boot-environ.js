@@ -1,4 +1,4 @@
-// LIBRARY: skim-compiler-env
+// LIBRARY: skim-boot-environ
 function make_environment(parentenv) {
   let env = {};
   let ret = {};

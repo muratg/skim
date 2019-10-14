@@ -1,5 +1,9 @@
+; TODO: bug: order can cause infinite loop. try putting env on top.
+(load "./boot/skim-boot-parser.skim")
+(load "./boot/skim-boot-environ.skim")
+(load "./boot/skim-boot-emitter.skim")
 
-(import (only (skim boot compiler) compile_string))
+(import (only (skim boot emitter) compile_basic))
 
 (define (print x)
   (display x)
@@ -7,7 +11,7 @@
 
 (define (compile_file name save_output)
   (define source (skim-load name))
-  (define output (compile_string source))
+  (define output (compile_basic source))
   (when save_output
     (define new-name (string-replace name ".skim" ".js"))
     (set! new-name (string-replace new-name ".ss" ".js"))

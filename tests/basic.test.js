@@ -1,4 +1,6 @@
-const { compile_string } = require("../bin/skim-boot-compiler");
+const { compile_basic } = require("./../bin/skim");
+
+let compile_string = compile_basic;
 
 test("my basic tests", () => {
   expect(2 * 5).toEqual(10);
@@ -22,4 +24,5 @@ test("quote", () => {
 test("compile quote", () => {
   expect(compile_string("(quote 1)")).toEqual("1;\n");
   expect(compile_string('(quote "x")')).toEqual('"x";\n');
+  expect(compile_string('(quasiquote "x")')).toEqual('"x";\n');
 });

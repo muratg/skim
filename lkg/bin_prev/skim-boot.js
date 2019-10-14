@@ -1,21 +1,331 @@
-// LIBRARY: skim-compiler-emitter
-const { make_environment } = require("./skim-boot-environ");
-/* ;; only exported function */
+/* ; TODO: bug: order can cause infinite loop. try putting env on top. */
+
+// LIBRARY: skim-boot-parser
+function parse(str) {
+  /* ;; NEW parser state */
+  function make_parser_state() {
+    let parser_state = {};
+    parser_state["stream"] = "";
+    parser_state["pos"] = 0;
+    parser_state["needs-input"] = false;
+    return parser_state;
+  }
+  function stream() {
+    return $PS["stream"];
+  }
+  function stream_setW(v) {
+    return ($PS["stream"] = v);
+  }
+  function pos() {
+    return $PS["pos"];
+  }
+  function pos_setW(v) {
+    return ($PS["pos"] = v);
+  }
+  function needs_input() {
+    return $PS["needs-input"];
+  }
+  function needs_input_setW(v) {
+    return ($PS["needs-input"] = v);
+  }
+  let $PS = make_parser_state();
+  function peek() {
+    return stream().length === pos() ? "" : stream()[pos()];
+  }
+  function use() {
+    let ret = peek();
+    return ret === "" ? ret : (pos_setW(1 + pos()), ret);
+  }
+  function done_parsing() {
+    return peek() === "";
+  }
+  function until(rx) {
+    return (() => {
+      let ret = "";
+      while (!rx.test(peek())) {
+        ret = [ret, use()].join("");
+        ret = ret;
+      }
+      return ret;
+    })();
+  }
+  function get_ws() {
+    return until(/^(\S|$)/);
+  }
+  function get_regex() {
+    let ret = "";
+    let save_pos = pos();
+    let done = false;
+    use();
+    if (!peek() === '"') {
+      throw new Error("error: meh");
+    }
+    use();
+    function loop() {
+      ret = [ret, until(/^(\\|"|$)/)].join("");
+      let next_char = peek();
+      if (next_char === "") {
+        done = true;
+      }
+      if (next_char === '"') {
+        use();
+        done = true;
+      }
+      if (next_char === "\\") {
+        use();
+        next_char = peek();
+        next_char === '"'
+          ? (use(), (ret = [ret, '"'].join("")))
+          : ((ret = [ret, "\\"].join("")), (ret = [ret, use()].join("")));
+      }
+      return done ? new RegExp(ret) : loop();
+    }
+    return loop();
+  }
+  function get_string() {
+    let ret = "";
+    let save_pos = pos();
+    let done = false;
+    use();
+    function loop() {
+      ret = [ret, until(/^(\\|"|$)/)].join("");
+      let next_char = peek();
+      if (next_char === "") {
+        pos_setW(save_pos);
+        done = true;
+      }
+      if (next_char === '"') {
+        use();
+        done = true;
+      }
+      if (next_char === "\\") {
+        use();
+        next_char = peek();
+        (() => {
+          switch (next_char) {
+            case '"':
+              return use(), (ret = [ret, '\\"'].join(""));
+            case "n":
+              return use(), (ret = [ret, "\\n"].join(""));
+            case "r":
+              return use(), (ret = [ret, "\\r"].join(""));
+            case "t":
+              return use(), (ret = [ret, "\\t"].join(""));
+            case "f":
+              return use(), (ret = [ret, "\\f"].join(""));
+            case "b":
+              return use(), (ret = [ret, "\\b"].join(""));
+            default:
+              return (
+                (ret = [ret, "\\"].join("")), (ret = [ret, use()].join(""))
+              );
+          }
+        })();
+      }
+      return done ? new String(ret) : loop();
+    }
+    return loop();
+  }
+  function get_comment() {
+    let ret = until(/\n/);
+    use();
+    return ["comment", ret];
+  }
+  function get_hashval() {
+    let ret = "";
+    use();
+    (() => {
+      switch (use()) {
+        case "t":
+          return (ret = true);
+        case "f":
+          return (ret = false);
+        case "!":
+          return (ret = get_comment());
+        case "n":
+          return (ret = null);
+        default:
+          throw new Error(["unknown hashval: ", peek()].join(""));
+          return null;
+      }
+    })();
+    return ret;
+  }
+  function get_atom() {
+    let ret = "";
+    ret = [ret, until(/^(\s|\\|"|'|`|,|\(|\)|$)/)].join("");
+    let flt = parseFloat(ret);
+    ret = isNaN(flt) ? ret : flt;
+    ret = ret === "" ? null : ret;
+    return ret;
+  }
+  function get_atom2() {
+    let ret = "";
+    function loop() {
+      ret = [ret, until(/^(\s|\\|"|'|`|,|\(|\)|$)/)].join("");
+      let next_char = peek();
+      return next_char === "\\"
+        ? (use(), (ret = [ret, use()].join("")), loop())
+        : false;
+    }
+    return ret;
+  }
+  function get_expr() {
+    "";
+    return false;
+  }
+  function get_quote(quotestyle) {
+    use();
+    /* ;; get rid of ' */
+    let ret = [quotestyle, get_expr()];
+    process.stdout.write("" + ret);
+    process.stdout.write("\n");
+    return ret;
+  }
+  function get_list() {
+    let save_pos = pos();
+    use();
+    let ret = (() => {
+      let expr = get_expr();
+      let retv = [];
+      while (!(expr == null)) {
+        retv = [...retv, ...[expr]];
+        expr = get_expr();
+        retv = retv;
+      }
+      return retv;
+    })();
+    peek() === ")"
+      ? use()
+      : (pos_setW(save_pos), needs_input_setW(true), (ret = []));
+    return ret;
+  }
+  function get_expr() {
+    let ret = "";
+    needs_input_setW(false);
+    get_ws();
+    let next_char = peek();
+    (() => {
+      switch (next_char) {
+        case ";":
+          return (ret = get_comment());
+        case '"':
+          return (ret = get_string());
+        case "'":
+          return (ret = get_quote("quote"));
+        case "`":
+          return (ret = get_quote("quasiquote"));
+        case "@":
+          return (ret = get_regex());
+        case "#":
+          return (ret = get_hashval());
+        case "(":
+          return (ret = get_list());
+        default:
+          return (ret = get_atom());
+      }
+    })();
+    get_ws();
+    return ret;
+  }
+  stream_setW(str);
+  /* ;; if we start with #! it means a script (probably) */
+  (() => {
+    if (peek() === "#") {
+      return until(/\n/);
+    } else {
+      return true;
+    }
+  })();
+  let exprs = [];
+  (() => {
+    let done = false;
+    let expr = get_expr();
+    while (!done) {
+      exprs = [...exprs, ...[expr]];
+      done = done_parsing();
+      expr = get_expr();
+    }
+    return exprs;
+  })();
+  /* ;; (define expr (get-expr)) */
+  /* ;; (define exprs (list expr (list "comment" "HAHA"))) */
+  if (needs_input()) {
+    throw new Error("more input needed");
+  }
+  return exprs;
+}
+exports.parse = parse;
+
+// LIBRARY: skim-boot-environ
+function make_environment(parentenv) {
+  let env = {};
+  let ret = {};
+  ret["__parentEnv"] = parentenv;
+  ret["__env"] = env;
+  ret["newVar"] = (name, val) => (env[name] = val);
+  ret["getVar"] = name =>
+    (() => {
+      if (Object.keys(env).includes(name)) {
+        return env[name];
+      } else if (parentenv == null) {
+        return null;
+      } else {
+        let getfn = parentenv["getVar"];
+        return getfn(name);
+      }
+    })();
+  return ret;
+}
+exports.make_environment = make_environment;
+
+// LIBRARY: skim-boot-emitter
+function print(x) {
+  process.stdout.write("" + x);
+  return process.stdout.write("\n");
+}
+/* ;; BUG: these are for forward declaration... will handle these later with compiler bookkeepingV */
+function emit() {
+  return null;
+}
+function emit_body() {
+  return null;
+}
+function emit_identifier() {
+  return null;
+}
+function hash_table_ref() {
+  return null;
+}
+let loaded_libs = [];
+function register_library(name) {
+  /* ;(display (string-append "registering.... " name)) */
+  loaded_libs = [...loaded_libs, ...[name]];
+  /* ;(print (string-append "... registed.... " loaded-libs)) */
+  return false;
+}
+function library_registered(name) {
+  let ret = loaded_libs.includes(name);
+  /* ;(print (string-append "############ checking lib: " name ": " ret "...")) */
+  /* ;(unless ret (print (string-append "!!!!!!" loaded-libs "????????"))) */
+  return ret;
+}
+function compile_basic(source) {
+  let global_env = make_environment(null);
+  let exprs = parse(source);
+  let outputs = exprs.map(expr => {
+    let output = emit(expr, global_env);
+    let formatted = require("prettier").format(output, {
+      semi: true,
+      parser: "babel"
+    });
+    return formatted;
+  });
+  return outputs.join("\n");
+}
+/* ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; */
+/* ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; */
 function emit(expanded, env) {
-  /* ;; BUG: these are for forward declaration... will handle these later with compiler bookkeeping */
-  function emit_body() {
-    return null;
-  }
-  function emit_identifier() {
-    return null;
-  }
-  function hash_table_ref() {
-    return null;
-  }
-  function print(x) {
-    process.stdout.write("" + x);
-    return process.stdout.write("\n");
-  }
   /* ;; scope/tracking */
   function new_var(env, name, val) {
     /* ; (print (string-append "Defining new name " name " as " val "..." )) */
@@ -50,6 +360,18 @@ function emit(expanded, env) {
     let args = expanded.slice(1);
     let emitter = get_emitter(head);
     return emitter(args, env);
+  }
+  /* ;; load a file.. and emit everyhthing in it. */
+  /* ;; tracking: what files/modules are loaded (so that we can skip them from "require" if they are already loaded) */
+  /* ;; also, don't reload... */
+  function emit_load(expanded, env) {
+    if (!(2 === expanded.length)) {
+      throw new Error("emit-load form requires 2 items");
+    }
+    let name = expanded[1];
+    let src = require("fs").readFileSync(`${name}`, "utf8");
+    let output = compile_basic(src);
+    return output;
   }
   /* ;; used by cond, case, when, unless */
   /* ;; MMM */
@@ -354,6 +676,7 @@ function emit(expanded, env) {
     let import_style = ex[0];
     let import_name = ex.slice(1)[0];
     let import_values = ex.slice(1).slice(1);
+    let libname = import_name.join("-");
     (() => {
       switch (import_style) {
         case "only":
@@ -362,15 +685,18 @@ function emit(expanded, env) {
             return emit_identifier(v, env);
           });
           let vals_joined = vals.join(",");
-          return (ret = [
-            " ",
-            ret,
-            "const { ",
-            vals_joined,
-            " } = require('",
-            import_name.join("-"),
-            "');\n"
-          ].join(""));
+          if (!library_registered(libname)) {
+            ret = [
+              " ",
+              ret,
+              "const { ",
+              vals_joined,
+              " } = require('./",
+              libname,
+              "');\n"
+            ].join("");
+          }
+          return true;
         case "prefix":
           throw new Error("prefix not yet supported in include");
           return null;
@@ -423,8 +749,19 @@ function emit(expanded, env) {
     let name = body[0];
     /* ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future. */
     let libbody = body.slice(1);
-    let ret = ["// LIBRARY: ", name.join("-"), "\n"].join("");
-    ret = [" ", ret, emit_toplevel(libbody, env)].join("");
+    let libname = name.join("-");
+    let ret = "";
+    if (!library_registered(name)) {
+      /* ;(display "registered library: ") */
+      /* ;(print name) */
+      register_library(libname);
+      ret = ["// LIBRARY: ", libname, "\n"].join("");
+      ret = [" ", ret, emit_toplevel(libbody, env)].join("");
+    }
+    /* ;(when (library-registered name) */
+    /* ;(display "library alresady registered! ") */
+    /* ;(display name) */
+    /* ;(newline)) */
     return ret;
   }
   /* ;; apply */
@@ -618,6 +955,8 @@ function emit(expanded, env) {
         return emit_test_group(expanded, env);
       } else if (expanded[0] === "test") {
         return emit_test(expanded, env);
+      } else if (expanded[0] === "load") {
+        return emit_load(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
@@ -790,6 +1129,9 @@ function emit(expanded, env) {
   prim("null?", (x, env) =>
     ["", emit(x[0], env), ".length === 0 ", ""].join("")
   );
+  prim("list-includes?", (x, env) =>
+    ["", emit(x[0], env), ".includes(", emit(x[1], env), ")"].join("")
+  );
   prim("append", (x, env) =>
     ["", "[...", emit(x[0], env), ", ...", emit(x[1], env), "]", ""].join("")
   );
@@ -870,9 +1212,13 @@ function emit(expanded, env) {
   );
   /* ;; file io */
   prim("skim-load", (x, env) =>
-    ["", "require('fs').readFileSync(", emit(x[0], env), ", 'utf8')", ""].join(
+    [
+      "",
+      "require('fs').readFileSync(`${",
+      emit(x[0], env),
+      "}`, 'utf8')",
       ""
-    )
+    ].join("")
   );
   prim("skim-save", (x, env) =>
     [
@@ -910,3 +1256,60 @@ function emit(expanded, env) {
   return emit_expr(expanded, env);
 }
 exports.emit = emit;
+exports.compile_basic = compile_basic;
+
+
+function print(x) {
+  process.stdout.write("" + x);
+  return process.stdout.write("\n");
+}
+
+function compile_file(name, save_output) {
+  let source = require("fs").readFileSync(`${name}`, "utf8");
+  let output = compile_basic(source);
+  if (save_output) {
+    let new_name = name.replace(".skim", ".js");
+    new_name = new_name.replace(".ss", ".js");
+    new_name = new_name.replace(".scm", ".js");
+    require("fs").writeFileSync(new_name, output);
+  }
+  return output;
+}
+
+let output = "";
+
+function skim_help() {
+  let help = "";
+  help = [help, "SkimJS", "\n"].join("");
+  help = [help, "skim: repl/TBD", "\n"].join("");
+  help = [help, "skim filename: run file", "\n"].join("");
+  help = [help, "skim -c filename: compile file", "\n"].join("");
+  return process.stdout.write("" + help);
+}
+
+function start() {
+  let args = process.argv.slice(1);
+  /* ; (display "*** command-line: " ) (print args) */
+  let output = "";
+  return (() => {
+    if (1 === args.length) {
+      return skim_help();
+    } else if (2 === args.length) {
+      output = compile_file(args[1], false);
+      return eval(`${output}`);
+    } else if (3 === args.length) {
+      return (() => {
+        let _1 = args[1];
+        let _2 = args[2];
+
+        return _1 === "-c"
+          ? (output = compile_file(args[2], true))
+          : print(["unknown option: '", _1, "'"].join(""));
+      })();
+    } else {
+      return skim_help();
+    }
+  })();
+}
+
+start();

@@ -1,12 +1,13 @@
 echo "Building SkimJS, using '$SKIM'. If you only see '', you need SKIM env var."
+
 ls -al ./bin
-rm -rf ./boot/skim-boot-*.js
-$SKIM -c ./boot/skim-boot-parser.skim
-$SKIM -c ./boot/skim-boot-emitter.skim
-$SKIM -c ./boot/skim-boot-environ.skim
-$SKIM -c ./boot/skim-boot-compiler.skim
-$SKIM -c ./boot/skim-boot-cli.skim
-cp ./boot/skim.js ./bin
-mv ./boot/skim-boot-*.js ./bin
+rm -rf ./boot/*.js
+
+echo "Working..."
+$SKIM -c ./boot/skim.ss
+mv ./boot/skim.js ./bin
+chmod +x ./bin/skim.js
+sed -i '1s/^/#!\/usr\/bin\/env node\n/' ./bin/skim.js
+
 ls -al ./bin
 echo "Done."

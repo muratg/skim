@@ -1,4 +1,4 @@
-// LIBRARY: skim-compiler-parser
+// LIBRARY: skim-boot-parser
 function parse(str) {
   /* ;; NEW parser state */
   function make_parser_state() {

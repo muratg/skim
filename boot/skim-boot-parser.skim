@@ -1,5 +1,5 @@
 (define-library
-  (skim compiler parser)
+  (skim boot parser)
   (export parse)
   (define (parse str)
 
