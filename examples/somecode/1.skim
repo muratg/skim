@@ -1,5 +1,0 @@
-#!/usr/bin/env skim
-(let
-  ((a 123)
-   (test (lambda (x) (* (+ x x) (- x 1)))))
-  (skim-print (string-append "->" a "<- :: " (test a))))

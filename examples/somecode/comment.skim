@@ -1,5 +1,0 @@
-  (define (test)
-    ;; lol
-    (define a 1)
-    (define b 2)
-    (num+ a b))

@@ -286,9 +286,6 @@ function print(x) {
   return process.stdout.write("\n");
 }
 /* ;; BUG: these are for forward declaration... will handle these later with compiler bookkeepingV */
-function emit() {
-  return null;
-}
 function emit_body() {
   return null;
 }
@@ -310,19 +307,6 @@ function library_registered(name) {
   /* ;(print (string-append "############ checking lib: " name ": " ret "...")) */
   /* ;(unless ret (print (string-append "!!!!!!" loaded-libs "????????"))) */
   return ret;
-}
-function compile_basic(source) {
-  let global_env = make_environment(null);
-  let exprs = parse(source);
-  let outputs = exprs.map(expr => {
-    let output = emit(expr, global_env);
-    let formatted = require("prettier").format(output, {
-      semi: true,
-      parser: "babel"
-    });
-    return formatted;
-  });
-  return outputs.join("\n");
 }
 /* ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; */
 /* ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; */
@@ -365,13 +349,28 @@ function emit(expanded, env) {
   /* ;; load a file.. and emit everyhthing in it. */
   /* ;; tracking: what files/modules are loaded (so that we can skip them from "require" if they are already loaded) */
   /* ;; also, don't reload... */
+  /* ;; idea: if loaded is library, just emit body, ignore imports/exports. */
+  /* ;; so parse, instead of compiling right away */
   function emit_load(expanded, env) {
     if (!(2 === expanded.length)) {
       throw new Error("emit-load form requires 2 items");
     }
     let name = expanded[1];
-    let src = require("fs").readFileSync(`${name}`, "utf8");
-    let output = compile_basic(src);
+    let output = "";
+    if (!library_registered(name)) {
+      register_library(name);
+      /* ;; load and parse */
+      let source = require("fs").readFileSync(`${name}`, "utf8");
+      let exprs = parse(source);
+      /* ;; go over each expr */
+      let outputs = exprs.map(expr => {
+        let output = emit(expr, env);
+        /* ; (define formatted (skim-prettier output)) */
+        /* ;formatted */
+        return output;
+      });
+      output = outputs.join("\n");
+    }
     return output;
   }
   /* ;; used by cond, case, when, unless */
@@ -652,7 +651,11 @@ function emit(expanded, env) {
   /* ;; see if code can be shared */
   function emit_namedfunction(name, argnames, bod, env) {
     let ret = "";
-    let argsExpr = [argnames.map(x => ["", x].join(""))].join("");
+    let argnames_em = argnames.map(n => {
+      new_var(env, n, true);
+      return emit_identifier(n, env);
+    });
+    let argsExpr = [argnames_em.map(x => ["", x].join(""))].join("");
     let bodExpr =
       bod.length === 1
         ? emit(bod[0], env)
@@ -671,6 +674,7 @@ function emit(expanded, env) {
     ].join("");
     return ret;
   }
+  /* ;; TODO: multiple import statements */
   function emit_import(expanded, env) {
     let ret = "";
     let ex = expanded.slice(1)[0];
@@ -714,12 +718,15 @@ function emit(expanded, env) {
     let body_exprs = [];
     /* ;(define import-exprs (list)) */
     let export_exprs = [];
+    let begin_exprs = [];
     libbody.map(toplevel => {
       let head = toplevel[0];
       return (() => {
         switch (head) {
           case "export":
             return (export_exprs = [...export_exprs, ...toplevel.slice(1)]);
+          case "begin":
+            return (body_exprs = [...body_exprs, ...toplevel.slice(1)]);
           default:
             return (body_exprs = [...body_exprs, ...[toplevel]]);
         }
@@ -748,11 +755,13 @@ function emit(expanded, env) {
     }
     let body = expanded.slice(1);
     let name = body[0];
+    /* ;; TODO: make a pass of all the variables, and assign their names early on. */
+    /* ;; to prevent the need to define empty functions ahead. */
     /* ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future. */
     let libbody = body.slice(1);
     let libname = name.join("-");
     let ret = "";
-    if (!library_registered(name)) {
+    if (!library_registered(libname)) {
       /* ;(display "registered library: ") */
       /* ;(print name) */
       register_library(libname);
@@ -911,6 +920,36 @@ function emit(expanded, env) {
     return ret;
   }
   /* ;; ?? */
+  function emit_values(expanded, env) {
+    if (!(expanded.length >= 2)) {
+      throw new Error("values requires 2 or more items");
+    }
+    let bod = expanded.slice(1);
+    let lst = [...["list"], ...bod];
+    /* ;(print "-------") (print lst) */
+    return emit(lst, env);
+  }
+  function emit_define_values(expanded, env) {
+    if (!(expanded.length === 3)) {
+      throw new Error(
+        "define-values requires 3 items: define-values <names> <values>"
+      );
+    }
+    let bod = expanded.slice(1);
+    let names = bod[0];
+    let vals = bod.slice(1)[0];
+    /* ;(print names) */
+    /* ;(print values) let [a, b] = [1, 2] */
+    let names_em = names.map(n => emit_identifier(n, env));
+    let ret = [
+      "let [",
+      names_em.join(", "),
+      "] = ",
+      emit(vals, env),
+      ";\n"
+    ].join("");
+    return ret;
+  }
   function emit_list(expanded, env) {
     /* ; (display expanded) (display "------------") (newline) */
     return (() => {
@@ -958,6 +997,10 @@ function emit(expanded, env) {
         return emit_test(expanded, env);
       } else if (expanded[0] === "load") {
         return emit_load(expanded, env);
+      } else if (expanded[0] === "define-values") {
+        return emit_define_values(expanded, env);
+      } else if (expanded[0] === "values") {
+        return emit_values(expanded, env);
       } else if (expanded[0] === "comment") {
         return ["/* ", expanded.slice(1), " */\n"].join("");
       } else {
@@ -1007,7 +1050,7 @@ function emit(expanded, env) {
       } else if (expanded instanceof Array) {
         return emit_list(expanded, env);
       } else {
-        throw new Error(["mm?", expanded].join(""));
+        throw new Error(["emit-expr: unknown ->", expanded, "<-"].join(""));
         return null;
       }
     })();
@@ -1237,6 +1280,31 @@ function emit(expanded, env) {
       ""
     )
   );
+  prim("skim-readline-create", (x, env) =>
+    [
+      "require ('readline').createInterface(process.stdin, process.stdout); "
+    ].join("")
+  );
+  prim("skim-readline-setPrompt", (x, env) =>
+    ["", emit(x[0], env), ".setPrompt(", emit(x[1], env), ")"].join("")
+  );
+  prim("skim-readline-prompt", (x, env) =>
+    ["", emit(x[0], env), ".prompt(", emit(x[1], env), ")"].join("")
+  );
+  prim("skim-readline-close", (x, env) =>
+    ["", emit(x[0], env), ".close()"].join("")
+  );
+  prim("skim-readline-on", (x, env) =>
+    [
+      "",
+      emit(x[0], env),
+      ".on(",
+      emit(x[1], env),
+      ", ",
+      emit(x[2], env),
+      ")"
+    ].join("")
+  );
   /* ; (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" ))) */
   /* ; (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" ))) */
   /* ; (prim "skim-emit" (lambda (x env) (string-append "" "require('./skim-boot-emitter').emit(" (emit (list-ref x 0) env) "," (emit (list-ref x 1) env) ")" "" ))) */
@@ -1256,6 +1324,19 @@ function emit(expanded, env) {
   prim("command-line", (x, env) => "process.argv.slice(1)");
   return emit_expr(expanded, env);
 }
+function compile_basic(source) {
+  let global_env = make_environment(null);
+  let exprs = parse(source);
+  let outputs = exprs.map(expr => {
+    let output = emit(expr, global_env);
+    let formatted = require("prettier").format(output, {
+      semi: true,
+      parser: "babel"
+    });
+    return formatted;
+  });
+  return outputs.join("\n");
+}
 exports.emit = emit;
 exports.compile_basic = compile_basic;
 
@@ -1263,6 +1344,48 @@ exports.compile_basic = compile_basic;
 function print(x) {
   process.stdout.write("" + x);
   return process.stdout.write("\n");
+}
+
+function make_repl(print, prompt, set_prompt, close) {
+  function on_line(line) {
+    let output = compile_basic(line);
+    return print(eval(`${output}`));
+  }
+  function on_start() {
+    return print(
+      "hello! skim repl is not ready. it can only do single line expressions. ctrl-c to exit."
+    );
+  }
+  function on_close() {
+    return print("bye!");
+  }
+  /* ;; return 3 values */
+  return [on_line, on_start, on_close];
+}
+
+function start_repl() {
+  let rl = require("readline").createInterface(process.stdin, process.stdout);
+  function rl_prompt(x) {
+    return rl.prompt(x);
+  }
+  function rl_set_prompt(x) {
+    return rl.setPrompt(x);
+  }
+  function rl_close() {
+    return rl.close();
+  }
+  function rl_on(ev, fn) {
+    return rl.on(ev, fn);
+  }
+  let [on_line, on_start, on_close] = make_repl(
+    print,
+    rl_prompt,
+    rl_set_prompt,
+    rl_close
+  );
+  rl_on("line", on_line);
+  rl_on("close", on_close);
+  return on_start();
 }
 
 function compile_file(name, save_output) {
@@ -1284,9 +1407,14 @@ function skim_help() {
   help = [help, "SkimJS", "\n"].join("");
   help = [help, "skim: repl/TBD", "\n"].join("");
   help = [help, "skim filename: run file", "\n"].join("");
+  help = [help, "skim -h: show this help", "\n"].join("");
   help = [help, "skim -c filename: compile file", "\n"].join("");
+  help = [help, 'skim -C "expr" : show compiled expression', "\n"].join("");
+  help = [help, 'skim -e "expr": evaluate expression', "\n"].join("");
   return process.stdout.write("" + help);
 }
+
+let help_text = process.stdout.write("" + [].join("\n"));
 
 function start() {
   let args = process.argv.slice(1);
@@ -1294,18 +1422,37 @@ function start() {
   let output = "";
   return (() => {
     if (1 === args.length) {
-      return skim_help();
+      return start_repl();
     } else if (2 === args.length) {
-      output = compile_file(args[1], false);
-      return eval(`${output}`);
+      let _1 = args[1];
+      return (() => {
+        if ("-h" === _1) {
+          return skim_help();
+        } else {
+          output = compile_file(_1, false);
+          return eval(`${output}`);
+        }
+      })();
     } else if (3 === args.length) {
       return (() => {
         let _1 = args[1];
         let _2 = args[2];
 
-        return _1 === "-c"
-          ? (output = compile_file(args[2], true))
-          : print(["unknown option: '", _1, "'"].join(""));
+        return (() => {
+          switch (_1) {
+            case "-c":
+              compile_file(_2, true);
+              return print("done.");
+            case "-C":
+              return print(["", compile_basic(_2)].join(""));
+            case "-e":
+              let output = compile_basic(_2);
+              return print(eval(`${output}`));
+            default:
+              print(["unknown option: '", _1, "'"].join(""));
+              return skim_help();
+          }
+        })();
       })();
     } else {
       return skim_help();

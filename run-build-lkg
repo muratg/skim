@@ -1,2 +1,0 @@
-#!/usr/bin/env sh
-SKIM='node ./lkg/bin/skim.js' ./scripts/build.sh

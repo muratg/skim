@@ -10,7 +10,6 @@
 
 
   ;; BUG: these are for forward declaration... will handle these later with compiler bookkeepingV
-  (define (emit) nil)
   (define (emit-body) nil)
   (define (emit-identifier) nil)
   (define (hash-table-ref) nil)
@@ -24,23 +23,11 @@
     ;(print (string-append "... registed.... " loaded-libs))
     #f)
 
-  (define (library-registered name)
-    (define ret (list-includes? loaded-libs name))
-    ;(print (string-append "############ checking lib: " name ": " ret "..."))
-    ;(unless ret (print (string-append "!!!!!!" loaded-libs "????????")))
-    ret )
-
-
-  (define (compile_basic source)
-    (define global-env (make-environment nil))
-    (define exprs (parse source))
-    (define outputs
-      (map (lambda (expr)
-             (define output (emit expr global-env))
-             (define formatted (skim-prettier output))
-             formatted)
-           exprs))
-    (string-join outputs "\n"))
+ (define (library-registered name)
+   (define ret (list-includes? loaded-libs name))
+   ;(print (string-append "############ checking lib: " name ": " ret "..."))
+   ;(unless ret (print (string-append "!!!!!!" loaded-libs "????????")))
+   ret )
 
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -82,11 +69,28 @@
     ;; load a file.. and emit everyhthing in it.
     ;; tracking: what files/modules are loaded (so that we can skip them from "require" if they are already loaded)
     ;; also, don't reload...
+    ;; idea: if loaded is library, just emit body, ignore imports/exports.
+    ;; so parse, instead of compiling right away
     (define (emit-load expanded env)
       (unless (= 2 (length expanded)) (raise  "emit-load form requires 2 items"))
       (define name (list-ref expanded 1))
-      (define src (skim-load name))
-      (define output (compile_basic src))
+      (define output "")
+      (unless (library-registered name)
+        (register-library name)
+        ;; load and parse
+        (define source (skim-load name))
+        (define exprs (parse source))
+        ;; go over each expr
+        (define outputs
+          (map (lambda (expr)
+                 (define output (emit expr env))
+                 ; (define formatted (skim-prettier output))
+                 ;formatted
+                 output
+                 )
+               exprs))
+
+        (set! output (string-join outputs "\n")))
       output)
 
 
@@ -321,8 +325,12 @@
     ;; see if code can be shared
     (define (emit-namedfunction name argnames bod env)
       (define ret "")
+      (define argnames_em (map (lambda (n)
+                                 (new-var env n #t)
+                                 (emit-identifier n env))
+                               argnames))
 
-      (define argsExpr (string-append (map (lambda (x) (string-append "" x)) argnames)))
+      (define argsExpr (string-append (map (lambda (x) (string-append "" x)) argnames_em)))
       (define bodExpr (if (= (length bod) 1)
                           (emit (list-ref bod 0) env)
                           (string-append "{" (emit-body bod env) "}")))
@@ -335,6 +343,7 @@
       (set! ret (string-append "function " (emit-identifier name env) "(" argsExpr ")" retclause ))
       ret)
 
+    ;; TODO: multiple import statements
     (define (emit-import expanded env)
       (define ret "")
       (define ex (car (cdr expanded)))
@@ -363,12 +372,14 @@
       (define body-exprs (list))
       ;(define import-exprs (list))
       (define export-exprs (list))
+      (define begin-exprs (list))
 
       (map
         (lambda (toplevel)
           (define head (car toplevel))
           (case head
             (("export") (set! export-exprs (append export-exprs (cdr toplevel))))
+            (("begin") (set! body-exprs (append body-exprs (cdr toplevel))))
 
             (else (set! body-exprs  (append body-exprs  (list toplevel))))
             )) libbody)
@@ -387,11 +398,13 @@
       (define body (cdr expanded))
       (define name (car body))
 
+      ;; TODO: make a pass of all the variables, and assign their names early on.
+      ;; to prevent the need to define empty functions ahead.
       ;; TODO: make an "emit-toplevel" and send it libbody from here as well as elsewhere in the future.
       (define libbody (cdr body))
       (define libname (string-join name "-"))
       (define ret "")
-      (unless (library-registered name)
+      (unless (library-registered libname)
         ;(display "registered library: ")
         ;(print name)
         (register-library libname)
@@ -517,6 +530,24 @@
       ret)
     ;; ??
 
+  (define (emit-values expanded env)
+    (unless (>= (length expanded) 2) (raise "values requires 2 or more items"))
+    (define bod (cdr expanded))
+    (define lst (append (list "list") bod))
+    ;(print "-------") (print lst)
+    (emit lst env))
+
+  (define (emit-define-values expanded env)
+    (unless (= (length expanded) 3) (raise "define-values requires 3 items: define-values <names> <values>"))
+    (define bod (cdr expanded))
+    (define names (car bod))
+    (define vals (car (cdr bod)))
+    ;(print names)
+    ;(print values) let [a, b] = [1, 2]
+    (define names-em (map (lambda (n) (emit-identifier n env)) names))
+    (define ret (string-append "let [" (string-join names-em ", ") "] = " (emit vals env) ";\n"))
+    ret)
+
     (define (emit-list expanded env)
       ; (display expanded) (display "------------") (newline)
       (cond ((null? expanded) "[]")
@@ -541,6 +572,8 @@
             ((string=? (list-ref expanded 0) "test-group") (emit-test-group expanded env))
             ((string=? (list-ref expanded 0) "test") (emit-test expanded env))
             ((string=? (list-ref expanded 0) "load") (emit-load expanded env))
+            ((string=? (list-ref expanded 0) "define-values") (emit-define-values expanded env))
+            ((string=? (list-ref expanded 0) "values") (emit-values expanded env))
             ((string=? (list-ref expanded 0) "comment") (string-append "/* " (cdr expanded )" */\n"))
             (else
               (define name (list-ref expanded 0))
@@ -578,7 +611,7 @@
         ((string? expanded)  (emit-identifier expanded env))
         ((regex? expanded)   (emit-regex expanded env))
         ((list? expanded)  (emit-list expanded env))
-        (else (raise (string-append "mm?" expanded)) nil)))
+        (else (raise (string-append "emit-expr: unknown ->" expanded "<-")) nil)))
 
     ;; cleanup opportunities here
     (prim "or" (lambda (x env) (string-append ""   "("  (map (lambda (e) (string-append "" (emit e env) "||")) x)  " false)"           ""  )))
@@ -653,6 +686,11 @@
     (prim "skim-load" (lambda (x env) (string-append "" "require('fs').readFileSync(`${" (emit (list-ref x 0) env) "}`, 'utf8')" "" )))
     (prim "skim-save" (lambda (x env) (string-append "" "require('fs').writeFileSync(" (emit (list-ref x 0) env) ","  (emit (list-ref x 1) env) ")" "" )))
     (prim "skim-exec" (lambda (x env) (string-append "" "require('child_process').execSync(" (emit (list-ref x 0) env) ")" "" )))
+    (prim "skim-readline-create" (lambda (x env) (string-append "require ('readline').createInterface(process.stdin, process.stdout); ")))
+    (prim "skim-readline-setPrompt" (lambda (x env) (string-append "" (emit (list-ref x 0) env) ".setPrompt(" (emit (list-ref x 1) env) ")")))
+    (prim "skim-readline-prompt" (lambda (x env) (string-append "" (emit (list-ref x 0) env) ".prompt(" (emit (list-ref x 1) env) ")")))
+    (prim "skim-readline-close" (lambda (x env) (string-append "" (emit (list-ref x 0) env) ".close()" )))
+    (prim "skim-readline-on" (lambda (x env) (string-append "" (emit (list-ref x 0) env) ".on(" (emit (list-ref x 1) env) ", " (emit (list-ref x 2) env) ")")))
 
     ; (prim "skim-make-environment" (lambda (x env) (string-append "" "require('./skim-boot-environ').make_environment(" (emit (list-ref x 0) env) ")" "" )))
     ; (prim "skim-parse" (lambda (x env) (string-append "" "require('./skim-boot-parser').parse(" (emit (list-ref x 0) env) ")" "" )))
@@ -666,4 +704,17 @@
     (prim "command-line" (lambda (x env) "process.argv.slice(1)"))
 
 
-    (emit-expr expanded env)))
+    (emit-expr expanded env))
+
+  (define (compile_basic source)
+    (define global-env (make-environment nil))
+    (define exprs (parse source))
+    (define outputs
+      (map (lambda (expr)
+             (define output (emit expr global-env))
+             (define formatted (skim-prettier output))
+             formatted)
+           exprs))
+    (string-join outputs "\n"))
+
+  )

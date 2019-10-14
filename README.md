@@ -6,10 +6,19 @@
 
 ## Command line
 
-`skim factorial.skim` 
+`skim`: repl/TBD
 
-Note: .ss or .scm extensions are also accepted.
+`skim -h`: show this help
+
+`skim filename.ss`: run file
+
+`skim -c filename.ss`: compile file
+
+`skim -C "expr"` : show compiled expression
+
+`skim -e "expr"`: evaluate expression
+
 
 ## Features
 
-...
+(TBD)

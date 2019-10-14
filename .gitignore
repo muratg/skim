@@ -1,2 +1,4 @@
 examples/boot
+*.tgz
+package
 node_modules

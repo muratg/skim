@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-cp ./lkg/bin/* ./lkg/bin_prev
-cp ./bin/* ./lkg/bin
