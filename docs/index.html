@@ -18,30 +18,23 @@
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link active" href="#what">What?</a>
             <a class="nav-link" href="#how">How?</a>
-            <a class="nav-link" href="#example">Show me!</a>
           </nav>
         </div>
       </header>
 
       <div id="what" class="cover mt-2">
         <h1 class="cover-heading">What's SkimJS?</h1>
-        <p class="lead mt-2">SkimJS is a self-hosting compiler for a subset of Scheme (R7RS) that compiles into readable, nice JavaScript.</p>
+        <p class="lead mt-2">SkimJS is a toy Scheme interpreter in JavaScript.</p>
       </div>
 
       <div id="how" class="cover mt-2">
         <h1 class="cover-heading">How?</h1>
         <p class="lead mt-2">
-          SkimJS is a very new project, and it can compile only a very small subset of Scheme, just enough to self-host. <br />
+          SkimJS is WIP. <br />
           <br />
-           If you'd like to give it a try (warning: <i>it's early stages</i>):
+           If you'd really like to give it a try...
           <ul>
             <li>Install skim globally (or do your thing if you know what you're doing) <code> npm i -g skimjs </code></li>
-            <li> Create a file mycode.ss and write some scheme code. </li>
-            <li>Command line help with  <code> skim -h </code></li>
-            <li>Compile code with <code> skim -c mycode.ss </code></li>
-            <li>Execute script with <code> skim mycode.ss </code></li>
-            <li>Evaluate single expression <code> skim -e '(let* () (display "hello!") (newline))' </code></li>
-            <li>Show compiled expression (in JS) <code> skim -C '(let* () (display "hello!") (newline))' </code></li>
             <li>Experimental REPL (WIP)<code> skim </code></li>
           </ul>
         </p>
@@ -50,17 +43,9 @@
         </p>
       </div>
 
-      <div id="example" class="container mt-2">
-        <h1 class="cover-heading">Examples</h1>
-      <div class="container ml-5" class="ml-5">
-        <script src="https://gist.github.com/muratg/4c17f273a5c0aa2cc855169d2708d997.js"></script>
-        <script src="https://gist.github.com/muratg/7e5d5b5eeae716827755caba386d7989.js"></script>
-      </div>
-      </div>
-
       <footer class="mastfoot mt-auto">
         <div class="inner">
-          SkimJS (c) 2019 by muratg <br /> MIT License
+          SkimJS (c) 2020 by muratg <br /> MIT License
         </div>
       </footer>
     </div>
