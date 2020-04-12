@@ -1,6 +1,6 @@
 {
   "name": "skimjs",
-  "version": "0.0.20",
+  "version": "0.0.21",
   "description": "Skim CLI",
   "keywords": [
     "scheme",
@@ -27,7 +27,9 @@
   "dependencies": {
     "patchable": "^0.1.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "browserify": "^16.5.1"
+  },
   "scripts": {
     "dev-install-skim": "sudo npm i -g",
     "dev-uninstall-skim": "sudo npm uninstall -g",
