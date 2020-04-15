@@ -1,6 +1,6 @@
 {
   "name": "skimjs",
-  "version": "0.0.21",
+  "version": "0.0.22",
   "description": "Skim CLI",
   "keywords": [
     "scheme",
@@ -14,9 +14,9 @@
     "type": "git",
     "url": "https://github.com/muratg/skim"
   },
-  "main": "bin/skim.js",
+  "main": "bin/skimbundle.js",
   "bin": {
-    "skim": "bin/skim.js"
+    "skim": "bin/skimbundle.js"
   },
   "files": [
     "bin"
@@ -24,10 +24,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "patchable": "^0.1.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "patchable": "^0.1.1",
     "browserify": "^16.5.1"
   },
   "scripts": {
