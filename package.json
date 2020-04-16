@@ -1,6 +1,6 @@
 {
   "name": "skimjs",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "Skim CLI",
   "keywords": [
     "scheme",
@@ -14,9 +14,9 @@
     "type": "git",
     "url": "https://github.com/muratg/skim"
   },
-  "main": "bin/skimbundle.js",
+  "main": "bin/skimb.js",
   "bin": {
-    "skim": "bin/skimbundle.js"
+    "skim": "bin/skimb.js"
   },
   "files": [
     "bin"
@@ -26,12 +26,11 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "patchable": "^0.1.1",
-    "browserify": "^16.5.1"
+    "pureable": "0.0.4"
   },
   "scripts": {
-    "dev-install-skim": "sudo npm i -g",
-    "dev-uninstall-skim": "sudo npm uninstall -g",
-    "PUBLISH-NPM": "npm publish"
+    "clean": "rm -rf package-lock.json && rm -rf node_modules && rm bin/skimb.js && npm i",
+    "bundle": "pbundle src/skim.js src/repl.js > bin/skimb.js && chmod +x bin/skimb.js",
+    "build": "npm run clean && npm run bundle"
   }
 }

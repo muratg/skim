@@ -1,30 +1,18 @@
-#!/usr/bin/env node
-
-/* compiled code */
+if (typeof window !== "object") {
+  Object.assign(module.exports, { pureable: require("pureable") });
+}
 Object.assign(
   typeof window === "object" ? window : module.exports,
-  ((USING = typeof window === "object" ? (_) => window : (lib) => require(lib)) => {
-    //----------------------------------------------------------------
-    // BEGIN LIBRARY
-    ("use strict");
-    //----------------------------------------------------------------
-
-    const P = USING("patchable");
-
+  ((USING = typeof window === "object" ? (_) => window : (_) => module.exports) => {
     const apply = (fn, xs) => fn(...xs);
     const write = (x) => {
-      // console.log("WRITE CALLED", x);
       return x.toString();
     };
 
-    const var$ = P.patchRef;
-    const mutated = P.patched;
+    const PUREABLE = USING("pureable");
 
-    //----------------------------------------------------------------
-    //----------------------------------------------------------------
-    //----------------------------------------------------------------
-    //----------------------------------------------------------------
-
+    const var$ = PUREABLE.patchRef;
+    const mutated = PUREABLE.patched;
     console.log("Initializing Skim...");
     const OPEN = "(";
     const CLOSE = ")";
@@ -324,29 +312,5 @@ Object.assign(
     };
     console.log("Skim ready");
     return { skim: { skimEval: skim_evalStr, skimRepl: skim_makeRepl } };
-    //----------------------------------------------------------------
-    // END LIBRARY
-    //----------------------------------------------------------------
   })()
 );
-
-if (typeof module === "object") {
-  const { skimRepl } = exports["skim"];
-  const args = typeof process !== "undefined" ? process.argv.slice(1) : [];
-  const makeRL = () => require("readline").createInterface(process.stdin, process.stdout);
-  if (args.length >= 1) {
-    const rl = makeRL();
-    console.log("S");
-    let [on_line, on_start, on_close] = skimRepl(
-      console.log,
-      (x) => rl.prompt(x),
-      (x) => rl.setPrompt(x),
-      (x) => rl.close(x)
-    );
-    rl.on("line", on_line);
-    rl.on("close", on_close);
-    on_start(args);
-  } else {
-    console.log("Loaded as a library in node.");
-  }
-}
